@@ -1,0 +1,4 @@
+node_modules/
+lib/
+# 素材目录（随库发布）
+assets/
