@@ -5,8 +5,8 @@
 牛来桌宠 —— 在 dsh web 界面角落里养一头《牛来》的小牛。平时呼吸、眨眼、踱步、
 打盹、气泡唠叨；agent 任务一完成，它就蹦出来喊一声「妈~~妈~~」。
 
-纯客户端插件（只有 `dsh.client` 没有 `dsh.bundle`）：安装经 dsh-market 的
-client-only shim 挂载，**刷新页面即生效，更新免重启**。
+全部能力在浏览器端（client 半）；host 半是空插件（`index.js`），仅为官方 CLI
+安装识别（`dsh.bundle` manifest）。**更新后刷新页面即生效，免重启**。
 
 ![五个皮肤](docs/family.png)
 

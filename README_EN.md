@@ -7,8 +7,9 @@ dsh (DeepSeek Harness) web UI. It breathes, blinks, strolls around, naps and gos
 speech bubbles; the moment your agent finishes a task, it jumps up and shouts
 **"Ma~~ma~~"** — with mouth-synced voice, tail note held to the very end.
 
-Pure client-side plugin (`dsh.client` only, no `dsh.bundle`): mounted through dsh-market's
-client-only shim — **refresh the page to apply, no host restart, ever**.
+All functionality lives in the browser (client half); the host half is a no-op
+(`index.js`) that exists only so `dsh plugin add` recognizes the package
+(`dsh.bundle` manifest). **Updates apply on page refresh — no host restart**.
 
 ![Five skins](docs/family.png)
 

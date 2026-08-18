@@ -3,15 +3,23 @@
   "version": "0.1.0",
   "description": "dsh web desktop pet: a Niulai calf that lives in the corner, hops around, and moos \"mama\" when an agent task completes (client-only plugin)",
   "type": "module",
+  "main": "./index.js",
   "exports": {
+    ".": "./index.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "index.js",
+    "cordis.patch.yml",
     "lib",
-    "README.md"
+    "README.md",
+    "README_EN.md"
   ],
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web"
     }

@@ -4,9 +4,12 @@
 
 ## 是什么
 
-dsh（DeepSeek Harness）web 的**纯客户端插件**：右下角 fixed 浮层桌宠，5 个皮肤，
-订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。无后端、无 slots，
-只有 `dsh.client` 入口，经 dsh-market client-only shim 挂载。
+dsh（DeepSeek Harness）web 的**客户端插件**：右下角 fixed 浮层桌宠，5 个皮肤，
+订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。全部能力在
+client 半（`lib/client.js`）；host 半 `index.js` 是空插件，`dsh.bundle`
+manifest + `cordis.patch.yml` 仅为官方 CLI 安装识别（awesome 收录硬性要求）。
+**若早期经 pnpm file + market client-only shim 装过，需用官方 CLI 重装一次**
+（`dsh plugin --profile web add file:...`）让它进 bundles 层栈。
 
 ## 构建与调试
 
