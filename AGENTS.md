@@ -66,7 +66,8 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 
 ## 素材管线（tools/）
 
-assets/ 随库发布，重建素材的脚本全在 tools/：
+assets/ 与 lib/ 均入库（手绘三小只原创）。
+重建/修改素材的脚本全在 tools/：
 
 - `tools/cutout/`（牛来/小黄系，PIL+numpy，路径内的 /tmp/niulai 需自备源帧）：
   cutout2.py（源帧抠图，犄角暗色阈值）→ repair_hooves.py（腿部重建+蹄冠：

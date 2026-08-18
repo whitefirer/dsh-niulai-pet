@@ -1,8 +1,8 @@
 /**
  * dsh-niulai-pet client 入口：挂载桌宠 + 订阅 sessions 服务驱动庆祝/耗时气泡。
  *
- * 皮肤素材全部从本地 assets/ 内联（esbuild dataurl）。牛来两张为抠图精修，
- * 素材随库发布；奶牛/熊猫/鲸鱼为手绘扁平风。
+ * 皮肤素材全部从本地 assets/ 内联（esbuild dataurl）。牛来/小黄为抠图精修，
+ * 奶牛/熊猫/鲸鱼为手绘扁平风；素材随库发布。
  * 刷新页面即换形象/声音。
  * @module dsh-niulai-pet/client
  */

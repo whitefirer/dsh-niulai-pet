@@ -14,7 +14,7 @@ client-only shim 挂载，**刷新页面即生效，更新免重启**。
 
 | 皮肤 | 素材 | 叫声 | 签名动作 |
 |---|---|---|---|
-| 牛来 | 抠图精修 | 原声 mp3（已降噪） | 连跳 |
+| 牛来 | 抠图 + PIL 精修 | 原声 mp3（已降噪） | 连跳 |
 | 小黄 | 牛来幼年皮（去角+黄亮） | 同上 | 翻滚 |
 | 奶牛 | 手绘扁平风（SVG 源在 tools/drawn/） | WebAudio 合成"哞" | 翻滚 |
 | 熊猫 | 手绘 | 合成吱声 | 翻滚 |
@@ -38,19 +38,22 @@ client-only shim 挂载，**刷新页面即生效，更新免重启**。
 `running true→false`（当前会话跑完）或 `completed` 新置位（后台会话完成）。
 宿主太旧没有 sessions 服务时降级为仅手动交互。
 
-## 素材说明
-
-`assets/` 目录（pet 系列 PNG + mama*.mp3）**随库发布**。
-想换形象请覆盖 `assets/` 后：
+## 安装
 
 ```sh
-npm run build   # 素材以 dataurl 内联进 lib/client.js
-# 刷新 dsh web 页面即生效（无需重启宿主）
+dsh plugin --profile web add github:whitefirer/dsh-niulai-pet
 ```
 
-素材经精修，
-自用分享无妨。奶牛/熊猫/蓝鲸为原创手绘（SVG 源文件在
-`tools/drawn/`，可自由使用）。
+`lib/` 构建产物已入库，安装零脚本；首次安装重启一次 dsh web，之后升级刷新页面即可。
+
+## 素材说明
+
+**素材全部入库，开箱即装即玩。** 牛来/小黄为抠图精修与原声；
+
+奶牛/熊猫/蓝鲸为手绘原创（SVG 源文件在 `tools/drawn/`，可自由取用）。
+
+想换形象/声音：覆盖 `assets/` 里的文件后 `npm run build`，刷新页面即生效。
+重建全部素材的管线脚本在 `tools/`（见 AGENTS.md）。
 
 ## 开发
 
