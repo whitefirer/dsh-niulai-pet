@@ -66,7 +66,7 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 
 ## 素材管线（tools/）
 
-assets/ 与 lib/ 均入库（手绘三小只原创）。
+assets/ 与 lib/ 均入库。
 重建/修改素材的脚本全在 tools/：
 
 - `tools/cutout/`（牛来/小黄系，PIL+numpy，路径内的 /tmp/niulai 需自备源帧）：
@@ -101,5 +101,5 @@ assets/ 与 lib/ 均入库（手绘三小只原创）。
 - body 直挂节点会被 dsh 首屏 React 清掉：MutationObserver 守灵重挂。
 - 气泡/菜单文字在 `scaleX` 根下会镜像：用 `scaleX(var(--face))` 抵消，
   flight 改朝向时记得同步 `--face`。
-- 候选音频段有加速变调（音调升高失真），用基频甄别（800-889Hz
+- 候选音频段有加速变调（音调升高失真），用基频甄别（pitch.py：800-889Hz
   为正常奶声，516-552Hz 为变调段，已弃用）。
