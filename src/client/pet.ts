@@ -287,7 +287,7 @@ export function mountPet(assets: PetAssets): PetHandle {
   aboutNote.textContent = '动作与叫声均为程序生成'
   aboutNote.style.cssText = 'color:#a1a1aa;font-size:12px'
   const aboutQuote = document.createElement('div')
-  aboutQuote.textContent = '「我尽力了，只能做这样了😂」'
+  aboutQuote.textContent = '「我尽力了，只能做成这样了😂」'
   aboutQuote.style.cssText = 'margin-top:6px;color:#fbbf24;font-size:12px'
   about.append(aboutTitle, aboutVer, aboutNote, aboutQuote)
 
