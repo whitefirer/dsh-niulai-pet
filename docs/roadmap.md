@@ -1,0 +1,98 @@
+# Roadmap — dsh-niulai-pet
+
+> 规划备忘，非承诺。变动时同步本文件。
+
+## 一、自定义皮肤（用户素材包）
+
+现状：SkinDef 已是注册表结构（加皮肤 = 加素材 + 注册一条，零改 pet.ts），
+事件绑定（完成/戳一下 → 动作）已有菜单 UI。要做的是把这套能力开放给用户：
+
+- 用户素材包：图片（常态/眨眼/喊/飞/喷水等帧）+ 音频 + 元数据 JSON，
+  本地导入（File System Access API 或文件上传），校验尺寸格式后注册进 SKINS
+- 自定义事件映射：事件 ×（动作 / 声音 / 气泡文案 / 颜色）用户可配
+- 素材包导出分享（单个 JSON + base64 或 zip）
+
+关联讨论：自定义颜色（纯色/渐变剪影皮肤，无需素材即可个性化）。
+
+## 二、语音控制（语音输入 → 控制 dsh / OS）
+
+### 结论先行
+
+控制面是现成的，难点在 STT（语音转文字）选型。
+
+- **控制 dsh 会话**：dsh 客户端有官方 prompt API
+  `sessions.prompt({ sessionId, mode: 'queue'|'steer', content })`，
+  桌宠已 inject `sessions` 服务，直接调，无需 DOM hack
+- **控制 dsh 界面**：客户端 runtime 有 `session.create` / `startSession` 等现成动作
+- **控制 OS**：不自建执行器。语音文本发给 agent，复用 agent 自带的
+  shell 工具 + dsh 权限确认流程，安全模型现成
+
+### 分期
+
+1. **一期 · 语音输入**：按住宠物 500ms 进入录音 → 松手识别 → 文本发给当前
+   会话（上滑取消）。录音时倾听动画，识别中气泡显示进度。STT 做成可插拔。
+2. **二期 · 口令控制**：固定口令操作界面（"新会话""切到 XX"）；
+   TTS 让宠物开口回话（语音反馈）。
+3. **三期 · 存疑**：唤醒词（openWakeWord / Porcupine）、连续对话。
+   常驻麦克风有隐私和功耗成本，再议。
+
+### 硬约束
+
+- **安全上下文**：`getUserMedia` 只在 https / localhost 可用。
+  局域网 `http://192.168.x.x` 访问下麦克风直接不可用
+  （与之前 `crypto.randomUUID` 同类问题）
+- **测试**：开发 VM 无麦克风，管线可用假音频流测，
+  真实识别效果必须本机浏览器验
+
+### STT 选型（见下方调研）
+
+- 默认零依赖：Web Speech API —— 但 Chromium 走 Google 服务，国内不可用，
+  华为等移动端浏览器支持参差，只能当"有就用"的兜底
+- 浏览器本地：whisper 系 wasm/WebGPU（browser-whisper 等），
+  首次下载 120~590MB，中文可用但非最优
+- 服务端 sidecar：sherpa-onnx + SenseVoice-Small（中文最优解，见调研）
+- 云 ASR：用户自配 OpenAI 兼容 key，轻量但依赖网络
+
+## 三、同类开源项目的语音识别方案（2026-08 调研）
+
+### 浏览器端
+
+| 方案 | 语言 | 模型体积 | 特点 |
+| --- | --- | --- | --- |
+| transformers.js Whisper | 99 | 40MB~3GB | 最常见起点，WebGPU；主线程阻塞长音频 |
+| browser-whisper 1.1 | 99 | ~120~590MB | worker 化 + 流式 + fp32 编码器混合量化，生产向 |
+| whisper.cpp | 99 | 39MB~3GB | 原生 CPU 之王；wasm 版无 GPU 加速 |
+| Moonshine | 仅英文 | 6~61MB | 专为端侧流式设计，亚秒延迟 |
+| Distil-Whisper | 仅英文 | 185~760MB | 英文 5-6x 提速 |
+
+要点：编码器怕量化（保 fp32）、解码器耐量化（q4）；
+WebGPU 比 WASM 快 5-10 倍但 Safari/Firefox 不行，须自动降级；
+30 秒分窗 + 重叠步长处理长音频，注意幻觉 token 抑制。
+
+来源：[OfflineTTS: Browser Speech Recognition: Whisper STT Guide](https://offlinetts.com/blog/browser-speech-recognition-whisper-comparison/)
+
+### 中文场景
+
+- **SenseVoice**（阿里 FunAudioLLM）：多语言识别 + 情感 + 声学事件，
+  SenseVoice-Small 快且中文好，[github](https://github.com/FunAudioLLM/SenseVoice)
+- **FunASR**（阿里达摩院）：工业级中文 ASR 全链路（VAD/标点/时间戳），
+  [github](https://github.com/modelscope/FunASR)，15k+ star
+- **sherpa-onnx**（k2-fsa/新一代 Kaldi）：ONNX 跨平台部署框架，
+  支持 SenseVoice / Paraformer / Qwen3-ASR，有 wasm 和服务端两种形态，
+  国内模型镜像在 ModelScope，[github](https://github.com/k2-fsa/sherpa-onnx)
+
+### 语音助手生态（服务端方案参照）
+
+- **Home Assistant Assist**：Whisper（STT）+ Piper（TTS）+ openWakeWord（唤醒词）
+  三件套，是全栈本地语音助手的事实标准组合
+- **OpenVoiceOS**（Mycroft 后继）：STT 全插件化——faster-whisper、whisper.cpp、
+  vosk、onnx-asr 可互换，另有 ovos-stt-http-server 把任意插件变微服务
+- 云端兜底常见：OpenAI Whisper API / Groq / Mistral（HACS 有现成集成）
+
+### 对我们的启示
+
+- 中文为主 → 服务端路线首选 **sherpa-onnx + SenseVoice-Small**
+  （dsh host 插件 spawn sidecar，或独立微服务）；
+  浏览器路线选 browser-whisper + whisper-base 混合量化
+- 唤醒词如果要上，openWakeWord（本地、可自定义词）优于 Porcupine（商用授权）
+- TTS 二期若做，Piper（本地）或浏览器 speechSynthesis（零依赖）二选一
