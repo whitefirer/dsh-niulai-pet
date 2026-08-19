@@ -33,6 +33,13 @@ npm run typecheck  # tsc --noEmit
 - 冒烟脚本范式在 /tmp/niulai/smoke*.mjs（临时目录，不保证还在）：
   按 `z-index=99999` 找桌宠 root，菜单是 `min-width:170px` 的子 div。
 
+## 发布
+
+推 `v*` tag 触发 GitHub Action 自动发 npm（`.github/workflows/publish.yml`，
+secret `NPM_TOKEN`）：先改 package.json 版本号并合入主干，再打同号 tag——
+workflow 会校验 tag 与版本号一致，不符直接失败。手动兜底：本机 `npm publish`
+（`publishConfig` 已钉官方源，provenance 只有 CI 路径有）。
+
 ## 架构
 
 ```
