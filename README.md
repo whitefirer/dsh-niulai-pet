@@ -47,6 +47,10 @@ standalone 页面，模拟任务驱动庆祝；想真养在 dsh 里再往下看�
 ## 安装
 
 ```sh
+# 从 npm 装（推荐）
+dsh plugin --profile web add dsh-niulai-pet
+
+# 或从 GitHub 装
 dsh plugin --profile web add github:whitefirer/dsh-niulai-pet
 ```
 

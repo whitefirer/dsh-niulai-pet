@@ -51,6 +51,10 @@ degrades to manual interaction only.
 ## Install
 
 ```sh
+# Install from npm (recommended)
+dsh plugin --profile web add dsh-niulai-pet
+
+# Or install from GitHub
 dsh plugin --profile web add github:whitefirer/dsh-niulai-pet
 ```
 
