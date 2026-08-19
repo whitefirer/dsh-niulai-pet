@@ -50,7 +50,10 @@
   华为等移动端浏览器支持参差，只能当"有就用"的兜底
 - 浏览器本地：whisper 系 wasm/WebGPU（browser-whisper 等），
   首次下载 120~590MB，中文可用但非最优
-- 服务端 sidecar：sherpa-onnx + SenseVoice-Small（中文最优解，见调研）
+- 服务端 sidecar：sherpa-onnx + SenseVoice-Small（中文最优解，见调研）。
+  **形态必须是独立微服务，插件只当客户端**——模型 int8 ≈ 234MB +
+  运行时 ~50-150MB 磁盘、常驻内存 ~0.4-0.6GB，打包进插件不合理；
+  参考 OVOS 的 ovos-stt-http-server 模式，按需启停
 - 云 ASR：用户自配 OpenAI 兼容 key，轻量但依赖网络
 
 ## 三、同类开源项目的语音识别方案（2026-08 调研）
@@ -91,8 +94,10 @@ WebGPU 比 WASM 快 5-10 倍但 Safari/Firefox 不行，须自动降级；
 
 ### 对我们的启示
 
-- 中文为主 → 服务端路线首选 **sherpa-onnx + SenseVoice-Small**
-  （dsh host 插件 spawn sidecar，或独立微服务）；
-  浏览器路线选 browser-whisper + whisper-base 混合量化
+- 中文为主 → 服务端路线首选 **sherpa-onnx + SenseVoice-Small**：
+  234M 参数，int8 ≈ 234MB，~170x 实时速度，中文/粤语/英日韩五语种；
+  dsh host 插件 spawn sidecar 或独立微服务，**插件本体不打包模型**，
+  用户按需安装启动（我们 6G 内存的 VM 上尤其要按需）
+- 浏览器路线选 browser-whisper + whisper-base 混合量化
 - 唤醒词如果要上，openWakeWord（本地、可自定义词）优于 Porcupine（商用授权）
 - TTS 二期若做，Piper（本地）或浏览器 speechSynthesis（零依赖）二选一
