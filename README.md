@@ -2,6 +2,9 @@
 
 **中文** | [English](README_EN.md)
 
+[![npm](https://img.shields.io/npm/v/dsh-niulai-pet)](https://www.npmjs.com/package/dsh-niulai-pet)
+[![license: MIT](https://img.shields.io/npm/l/dsh-niulai-pet)](LICENSE)
+
 牛来桌宠 —— 在 dsh web 界面角落里养一头《牛来》的小牛。平时呼吸、眨眼、踱步、
 打盹、气泡唠叨；agent 任务一完成，它就蹦出来喊一声「妈~~妈~~」。
 

@@ -2,6 +2,9 @@
 
 [中文](README.md) | **English**
 
+[![npm](https://img.shields.io/npm/v/dsh-niulai-pet)](https://www.npmjs.com/package/dsh-niulai-pet)
+[![license: MIT](https://img.shields.io/npm/l/dsh-niulai-pet)](LICENSE)
+
 NiuLai desktop pet — a little cow from the *NiuLai* meme, living in the corner of your
 dsh (DeepSeek Harness) web UI. It breathes, blinks, strolls around, naps and gossips in
 speech bubbles; the moment your agent finishes a task, it jumps up and shouts
