@@ -11,6 +11,9 @@ All functionality lives in the browser (client half); the host half is a no-op
 (`index.js`) that exists only so `dsh plugin add` recognizes the package
 (`dsh.bundle` manifest). **Updates apply on page refresh — no host restart**.
 
+**[Try it online (no install)](https://whitefirer.org/niulai-pet/)** — the same
+code as a standalone page, with a simulated task driver for celebrations.
+
 ![Five skins](docs/family.png)
 
 ![Demo](docs/demo.gif)

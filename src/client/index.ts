@@ -51,8 +51,8 @@ interface SessionsService {
   list: Snapshot<{ byId: Record<string, SessionRow> }>
 }
 
-/** 皮肤注册表：新角色在这里挂素材即上线。 */
-const SKINS: SkinDef[] = [
+/** 皮肤注册表：新角色在这里挂素材即上线。（demo  standalone 试玩页也复用此表） */
+export const SKINS: SkinDef[] = [
   {
     id: 'niulai',
     name: '牛来',

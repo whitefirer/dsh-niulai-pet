@@ -8,6 +8,9 @@
 全部能力在浏览器端（client 半）；host 半是空插件（`index.js`），仅为官方 CLI
 安装识别（`dsh.bundle` manifest）。**更新后刷新页面即生效，免重启**。
 
+**[在线试玩（免安装）](https://whitefirer.org/niulai-pet/)** —— 同一套代码的
+standalone 页面，模拟任务驱动庆祝；想真养在 dsh 里再往下看安装。
+
 ![五个皮肤](docs/family.png)
 
 ![演示](docs/demo.gif)

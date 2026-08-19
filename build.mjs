@@ -38,3 +38,23 @@ await build({
 })
 
 console.log('build ok: lib/client.js (browser, cjs closure, assets inlined)')
+
+// standalone 试玩页 bundle：与插件同一套 pet.ts + SKINS（src/client/demo.ts），
+// iife 单文件、素材同样内联，demo/index.html 直接 <script> 引入即可玩。
+await build({
+  bundle: true,
+  sourcemap: false,
+  minify: true,
+  logLevel: 'info',
+  entryPoints: ['src/client/demo.ts'],
+  outfile: 'demo/niulai-standalone.js',
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2022',
+  loader: {
+    '.png': 'dataurl',
+    '.mp3': 'dataurl',
+  },
+})
+
+console.log('build ok: demo/niulai-standalone.js (browser, iife, assets inlined)')

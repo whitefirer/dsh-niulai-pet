@@ -15,10 +15,14 @@ manifest + `cordis.patch.yml` 仅为官方 CLI 安装识别（awesome 收录硬�
 ## 构建与调试
 
 ```sh
-npm run build      # esbuild → lib/client.js（素材 dataurl 内联）
+npm run build      # esbuild → lib/client.js + demo/niulai-standalone.js（素材 dataurl 内联）
 npm run typecheck  # tsc --noEmit
 ```
 
+- **standalone 试玩页**：`demo/index.html` + `niulai-standalone.js`（同一套 pet.ts +
+  SKINS，sessions 订阅换成 `src/client/demo.ts` 的模拟任务卡片）。本地直接
+  浏览器打开 `demo/index.html` 即可玩；线上部署 = 把 demo/ 两文件拷到任意静态目录
+  （当前挂在博客 `static/niulai-pet/` → whitefirer.org/niulai-pet/）。
 - 安装调试：`cd ~/.dsh/profiles/web && pnpm add file:<本仓库路径>`，首次重启一次
   dsh web；之后 `build + 刷新页面`即可。
 - 验证钩子：页面 URL 加 `?petdebug=1` → `window.__niulai`（PetHandle）。
@@ -32,8 +36,9 @@ npm run typecheck  # tsc --noEmit
 ## 架构
 
 ```
-src/client/index.ts  入口：素材 import、SKINS 皮肤注册表、sessions 订阅（含忙闲沿）
+src/client/index.ts  入口：素材 import、SKINS 皮肤注册表（导出）、sessions 订阅（含忙闲沿）
 src/client/pet.ts    桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声
+src/client/demo.ts   standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
 ```
 
 **SkinDef（index.ts）**：`{ id, name, image, imageBlink?, imageShout?, imageFly?,
