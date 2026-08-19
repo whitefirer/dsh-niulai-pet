@@ -48,6 +48,8 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 **pet.ts 状态机**：`mood ∈ idle/walk/drag/celebrate/sleep/fly`。
 行为循环只在 `idle` 触发；动作派发 `runAction(name)` 解析
 `signature→当前皮肤签名`、`random→ACTION_POOL 现场抽`。
+**喊声是独立状态**：`shouting` 旗标（mouthShout 置位/复归）——sleep、眨眼等
+idle 行为必须查它让位（喊声不改 mood，只查 mood 会演出"边喊边趴下变暗"）。
 
 **持久化**（localStorage `dsh-niulai-pet:state-v1`）：
 `x / muted / shoutOnDone / talkative / skin / doneAction / pokeAction / shoutCount`。

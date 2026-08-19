@@ -375,6 +375,7 @@ export function mountPet(assets: PetAssets): PetHandle {
   // 嘴型：「妈-妈~~」两个音节 = 开-合-开，长尾音是开口音——保持张开到声止再闭。
   // 飞行中若皮肤有飞行张嘴帧（imageFlyShout）则照样开合。
   let mouthTimers: number[] = []
+  let shouting = false // 喊声播放中（含尾音保持）：sleep 压扁变暗、眨眼都要让位
   const mouthOpen = (): void => {
     if (cur().imageShout === undefined) return
     img.src = mood === 'fly'
@@ -387,16 +388,18 @@ export function mountPet(assets: PetAssets): PetHandle {
   const mouthIdle = (): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
     mouthTimers = []
+    shouting = false
     if (mood !== 'fly') img.src = skinIdle()
   }
   /** 一声的嘴型时间线：开 240ms → 合 120ms → 开并保持 → ms 时合上，onDone 接龙。 */
   const mouthShout = (ms: number, onDone?: () => void): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
     mouthTimers = []
+    shouting = true
     mouthOpen()
     mouthTimers.push(window.setTimeout(mouthShut, 240))
     mouthTimers.push(window.setTimeout(mouthOpen, 360))
-    mouthTimers.push(window.setTimeout(() => { mouthShut(); onDone?.() }, Math.max(ms, 420)))
+    mouthTimers.push(window.setTimeout(() => { mouthShut(); shouting = false; onDone?.() }, Math.max(ms, 420)))
   }
 
   // 眨眼：2.5~6.4s 随机间隔闭 130ms（喊叫/飞行/拖拽时让位）
@@ -405,11 +408,11 @@ export function mountPet(assets: PetAssets): PetHandle {
   const scheduleBlink = (): void => {
     blinkTimer = window.setTimeout(() => {
       const canBlink = !destroyed && (mood === 'idle' || mood === 'walk')
-        && mouthTimers.length === 0 && cur().imageBlink !== undefined
+        && !shouting && cur().imageBlink !== undefined
       if (canBlink) {
         img.src = cur().imageBlink as string
         blinkResetTimer = window.setTimeout(() => {
-          if (!destroyed && mood !== 'fly' && mouthTimers.length === 0) img.src = skinIdle()
+          if (!destroyed && mood !== 'fly' && !shouting) img.src = skinIdle()
         }, 130)
       }
       scheduleBlink()
@@ -567,7 +570,7 @@ export function mountPet(assets: PetAssets): PetHandle {
   }
 
   const sleepFor = async (ms: number): Promise<void> => {
-    if (mood !== 'idle') return
+    if (mood !== 'idle' || shouting) return // 叫唤着不许睡：压扁+变暗会把喊妈演成梦游
     mood = 'sleep'
     breathe.pause()
     const squash = img.animate(
