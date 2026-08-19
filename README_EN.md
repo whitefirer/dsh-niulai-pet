@@ -14,7 +14,7 @@ All functionality lives in the browser (client half); the host half is a no-op
 **[Try it online (no install)](https://whitefirer.org/niulai-pet/)** — the same
 code as a standalone page, with a simulated task driver for celebrations.
 
-![Five skins](docs/family.png)
+![Six skins](docs/family.png)
 
 ![Demo](docs/demo.gif)
 
@@ -23,6 +23,7 @@ code as a standalone page, with a simulated task driver for celebrations.
 | Skin | Artwork | Voice | Signature action |
 |---|---|---|---|
 | NiuLai 牛来 | cutout + PIL touch-up | original voice lines (denoised) | triple hop |
+| NiuLai Classic 牛来原皮 | AI-generated three-view sheet, cutout (hornless calf) | same | triple hop |
 | Young 小黄 | hornless, brighter variant | same | roll |
 | Cow 奶牛 | hand-drawn flat SVG | WebAudio synth moo | roll |
 | Panda 熊猫 | hand-drawn | synth squeak | roll |

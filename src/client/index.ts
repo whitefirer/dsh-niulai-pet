@@ -25,6 +25,9 @@ import whaleBlink from '../../assets/whale_blink.png'
 import whaleSpout from '../../assets/whale_spout.png'
 import mama1 from '../../assets/mama1.mp3'
 import mama2 from '../../assets/mama2.mp3'
+import petOrig from '../../assets/pet_orig.png'
+import petOrigShout from '../../assets/pet_orig_shout.png'
+import petOrigBlink from '../../assets/pet_orig_blink.png'
 import { mountPet, type PetHandle, type SkinDef } from './pet.js'
 
 /** 必需服务：无（slots 都不用 —— 桌宠是独立 fixed 浮层）。 */
@@ -66,6 +69,18 @@ export const SKINS: SkinDef[] = [
     signature: 'hops',
     shoutBubble: '妈~~妈~~',
     quips: ['妈——！', '我会飞你信不信'],
+  },
+  {
+    id: 'orig',
+    name: '牛来原皮',
+    image: petOrig,
+    imageShout: petOrigShout,
+    imageBlink: petOrigBlink,
+    voice: 'mama',
+    sounds: [mama1, mama2],
+    signature: 'hops',
+    shoutBubble: '妈~~妈~~',
+    quips: ['妈——！', '我还没长角呢'],
   },
   {
     id: 'young',

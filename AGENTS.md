@@ -5,7 +5,7 @@
 
 ## 是什么
 
-dsh（DeepSeek Harness）web 的**客户端插件**：右下角 fixed 浮层桌宠，5 个皮肤，
+dsh（DeepSeek Harness）web 的**客户端插件**：右下角 fixed 浮层桌宠，6 个皮肤，
 订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。全部能力在
 client 半（`lib/client.js`）；host 半 `index.js` 是空插件，`dsh.bundle`
 manifest + `cordis.patch.yml` 仅为官方 CLI 安装识别（awesome 收录硬性要求）。
@@ -84,6 +84,10 @@ assets/ 与 lib/ 均入库。
   make_young.py（去角+抛物线削顶+HSV 黄亮调色）、make_blink.py（闭眼帧）、
   cutout_fly.py（-70° 旋转出飞行图）。pitch.py 是音频基频分析（鉴别变调段）。
   **顺序敏感**：pet.png 是链根，改它必须重跑全部派生。
+- `tools/cutout/cutout_orig_db.py` + `variants_orig_db.py`（牛来原皮系，独立短链）：
+  源是 AI 生图三视图（正面全身白底，用户提供）——近白阈值抠图 +
+  腿部以下阴影区规则（防蹄底搭桥封腿缝）+ 腿缝泛洪清除（全填孔保嘴套高光），
+  派生张嘴/眨眼。无角是设定：牛来幼时无角，勿当缺陷修掉。
 - `tools/drawn/`（奶牛/熊猫/鲸鱼，原创 SVG）：`node render.mjs x.svg out.png W H`
   渲染 + `python3 post.py` 预乘 alpha 降采样去白边；*.snip 是 blink/spout
   变体补丁；whale 参考图抓取 grab_ref.mjs。
