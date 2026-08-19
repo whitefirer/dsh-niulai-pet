@@ -60,6 +60,9 @@ export interface PetHandle {
   poke(): void
   /** AI 会话忙闲：忙时传入开始时间戳，闲时传 null（用于耗时气泡）。 */
   setBusy(since: number | null): void
+  /** 静音开关（试玩页角标等宿主 UI 用；与宠物菜单的「声音」同源）。 */
+  setMuted(m: boolean): void
+  isMuted(): boolean
   destroy(): void
 }
 
@@ -901,6 +904,13 @@ export function mountPet(assets: PetAssets): PetHandle {
     poke,
     setBusy(since) {
       busySince = since
+    },
+    setMuted(m) {
+      muted = m
+      savePersisted({ ...loadPersisted(), muted })
+    },
+    isMuted() {
+      return muted
     },
     destroy() {
       destroyed = true

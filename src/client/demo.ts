@@ -67,9 +67,31 @@ function mountSim(pet: PetHandle): void {
   window.setInterval(() => { if (!document.hidden) run() }, 18000 + Math.random() * 8000)
 }
 
+/** 右上角静音角标：展示 + 控制，和宠物菜单「声音」同源同步。 */
+function mountMuteBtn(pet: PetHandle): void {
+  const btn = document.createElement('button')
+  btn.style.cssText = [
+    'position:fixed', 'right:16px', 'top:16px', 'z-index:99998',
+    'width:40px', 'height:40px', 'border-radius:10px',
+    'border:1px solid rgba(255,255,255,.12)', 'background:rgba(20,24,45,.92)',
+    'font-size:19px', 'cursor:pointer', 'backdrop-filter:blur(6px)',
+  ].join(';')
+  const sync = (): void => {
+    const m = pet.isMuted()
+    btn.textContent = m ? '🔇' : '🔊'
+    btn.title = m ? '已静音，点我开声' : '声音开，点我静音'
+    btn.setAttribute('aria-label', btn.title)
+  }
+  btn.addEventListener('click', () => { pet.setMuted(!pet.isMuted()); sync() })
+  sync()
+  window.setInterval(sync, 1000) // 菜单里拨开关也同步角标
+  document.body.appendChild(btn)
+}
+
 const start = (): void => {
   const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' })
   mountSim(pet)
+  mountMuteBtn(pet)
   // 验证钩子（playwright 冒烟用）
   ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
 }
