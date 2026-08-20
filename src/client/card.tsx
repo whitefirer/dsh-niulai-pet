@@ -194,6 +194,13 @@ const selectStyle = (disabled: boolean): React.CSSProperties => ({
   colorScheme: 'dark light',
 })
 
+/**
+ * 下拉展开列表是原生控件：背景随系统/浏览器主题走（浅色主题下是白底），
+ * 而 option 文字默认继承 select 的浅色前景 → 白字白底看不见。钉死
+ * 「深字浅底」，两种主题下展开列表都可读（闭合态仍用主题色，不受影响）。
+ */
+const optionStyle: React.CSSProperties = { color: '#18181b', backgroundColor: '#fff' }
+
 function Row(props: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '9px 0' }}>
@@ -262,7 +269,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 disabled={disabled}
                 onChange={(e) => { props.set({ skin: e.target.value }) }}
               >
-                {SKINS.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {SKINS.map((s) => <option key={s.id} value={s.id} style={optionStyle}>{s.name}</option>)}
               </select>
             </Row>
             <Row label={`${t('doneAction')} · ${skinName}`}>
@@ -272,7 +279,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 disabled={disabled}
                 onChange={(e) => { props.setSkinAction(cfg.skin, 'done', e.target.value as ActionName) }}
               >
-                {ACTION_ORDER.map((a) => <option key={a} value={a}>{t(`action.${a}`)}</option>)}
+                {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
             <Row label={`${t('pokeAction')} · ${skinName}`}>
@@ -282,7 +289,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 disabled={disabled}
                 onChange={(e) => { props.setSkinAction(cfg.skin, 'poke', e.target.value as ActionName) }}
               >
-                {ACTION_ORDER.map((a) => <option key={a} value={a}>{t(`action.${a}`)}</option>)}
+                {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
           </div>
