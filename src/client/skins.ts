@@ -28,6 +28,7 @@ import mama1 from '../../assets/mama1.mp3'
 import mama2 from '../../assets/mama2.mp3'
 import replyNiulai from '../../assets/reply.mp3'
 import replyRef from '../../assets/reply_ref.mp3'
+import replyMatch from '../../assets/reply_match.mp3'
 import petOrig from '../../assets/pet_orig.png'
 import petOrigShout from '../../assets/pet_orig_shout.png'
 import petOrigBlink from '../../assets/pet_orig_blink.png'
@@ -38,6 +39,9 @@ import type { SkinDef } from './pet.js'
  * 互补——带噪输入对带噪模板更友好，干净输入对干净模板更准（voice.ts 取 min）。
  */
 export const REPLY_REF = replyRef
+
+/** 识别主模板：同一段「牛来！」的长切版（含完整衰减尾，抗短模板被「妈妈」局部强对齐）。仅匹配用，不播放。 */
+export const REPLY_MATCH = replyMatch
 
 /** 皮肤注册表（demo standalone 试玩页也复用此表）。新增皮肤时同步 host 半 index.js 的 SKIN_IDS。 */
 export const SKINS: SkinDef[] = [

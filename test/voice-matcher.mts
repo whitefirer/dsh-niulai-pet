@@ -100,8 +100,9 @@ function readWav(path: string): Float32Array {
 
 // ---- 模板（生产同路径：mfcc + 能量裁剪）：双模板取 min（干净版+带噪参考版互补）----
 const tplPcm = readWav(join(TMP, 'reply.wav'))
+const tplMatchPcm = readWav(wav16k('reply-match.wav', join(REPO, 'assets/reply_match.mp3')))
 const tplRefPcm = readWav(wav16k('reply-ref.wav', join(REPO, 'assets/reply_ref.mp3')))
-const templates = [tplPcm, tplRefPcm].map((p) => trimByEnergy(mfccFrames(p, true), frameRmsSeries(p)))
+const templates = [tplMatchPcm, tplRefPcm].map((p) => trimByEnergy(mfccFrames(p, true), frameRmsSeries(p), 0.08))
 const template = templates[0]
 console.log(`模板帧数 ${templates.map((t) => t.length).join(' / ')}（取 min 打分）`)
 const scoreMulti = (input: number[][]): number => Math.min(...templates.map((t) => matchScore(t, input)))

@@ -27,15 +27,19 @@ export const MFCC_DIM = 13
  * 判中阈值：子序列 DTW 归一化距离（余弦代价 + 一阶 delta 特征 + 双端 CMN +
  * 非对角步惩罚 1.2）。由 test/voice-matcher.mts 标定（噪声样本每次生成
  * 模板/管线历次演进：初版（带噪模板、无谱减）正 ≤0.45 负 ≥0.71 阈值 0.57；
- * 2026-08-21 双模板（干净自截版 + 带噪参考版取 min）+ 谱减后复测：
- *   正样本（reply 本体 + ±8% 变调 / ±10% 变速 / 窄带）最高 ≈0.51
- *   负样本（mama1/mama2 喊声、mama.wav、静音、白噪）最低 ≈0.67
+ * 2026-08-21 再演进：主模板换长切版（含衰减尾，reply_match.mp3）+ 带噪参考版
+ * 取 min + 谱减 + 连续 2 次过阈防抖（短模板会被「妈妈」局部片段压线，踩过）：
+ *   正样本（reply 本体 + ±8% 变调 / ±10% 变速 / 窄带）最高 ≈0.41
+ *   负样本（mama1/mama2 喊声、mama.wav、静音、白噪）最低 ≈0.62
  *   （-25dB 全频段白噪正样本 0.64-0.75 判不中，已知限制：生产由浏览器
  *   noiseSuppression 前置清理，近场喊口令的 SNR 远高于合成极端样本）
  * 取 0.60 居中，双侧各 ≈0.09 间隔。宁偏紧：mama 喊声误判 = 循环自己停自己，
  * 是功能杀手；真人嗓音的召回率需真机麦克风验证后微调（上调警惕 mama 侧）。
  */
-export const VOICE_MATCH_THRESHOLD = 0.60
+export const VOICE_MATCH_THRESHOLD = 0.52
+
+/** 连续过阈次数才判命中（防抖）：滑窗每 50ms 评一次，2 次 ≈ 持续 100ms 都像才算。 */
+export const HIT_CONSECUTIVE = 2
 
 /** 能量门：帧 RMS（16bit 归一化）低于此值视为静音段，不做 DTW 评估。 */
 export const VAD_RMS_FLOOR = 0.008
@@ -321,6 +325,8 @@ export class LiveMatcher {
   private gateLeft = 0
   private sinceEval = 0
   private fired = false
+  /** 连续低于阈值的评估次数（防抖：单次跨界不命中，见 HIT_CONSECUTIVE）。 */
+  private hitStreak = 0
   private readonly templates: number[][][]
   private readonly onHit: () => void
   private readonly threshold: number
@@ -367,11 +373,18 @@ export class LiveMatcher {
         if (usable.length === 0) { pos += FRAME_STEP; continue }
         this.sinceEval = 0
         this.lastScore = Math.min(...usable.map((t) => matchScore(t, this.ring)))
+        // 防抖：连续 HIT_CONSECUTIVE 次过阈才命中。短模板（0.5s 级）下「妈妈」
+        // 的某个局部片段能单次压线，但不像真口令那样在一串滑窗上持续走低
         if (this.lastScore < this.threshold) {
-          this.fired = true
-          console.log(`[dsh-niulai-pet] voice-stop matched (score ${this.lastScore.toFixed(3)})`)
-          this.onHit()
-          return
+          this.hitStreak++
+          if (this.hitStreak >= HIT_CONSECUTIVE) {
+            this.fired = true
+            console.log(`[dsh-niulai-pet] voice-stop matched (score ${this.lastScore.toFixed(3)})`)
+            this.onHit()
+            return
+          }
+        } else {
+          this.hitStreak = 0
         }
       }
       pos += FRAME_STEP
@@ -472,7 +485,9 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       for (const src of srcs) {
         const pcm = await decodeToPcm16k(src)
         if (stopped) return false
-        const tpl = trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm))
+        // ratio 0.08（松）：识别模板要保住衰减尾——尾巴也是词形的一部分，
+        // 裁狠了短模板会被「妈妈」的某个局部片段强对齐（踩过）
+        const tpl = trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08)
         if (tpl.length >= 10) templates.push(tpl)
       }
       if (templates.length === 0) return false

@@ -18,7 +18,7 @@
 
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
-import { REPLY_REF } from './skins.js'
+import { REPLY_MATCH, REPLY_REF } from './skins.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
 export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
@@ -760,9 +760,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   // ——停止时妈妈回一句，闭环达成。不常驻：只在循环喊进行中开麦。
   let voice: VoiceStopHandle | null = null
   let voiceStarting = false
-  /** 开听条件：开关开 + 非静音 + 循环喊在跑 + 当前皮肤有回应音（无模板无法识别）。 */
+  /** 开听条件：开关开 + 非静音 + 循环喊在跑（模板全局——长切版+参考版，与皮肤无关）。 */
   const voiceWanted = (): boolean =>
-    voiceControlOn && !muted && !destroyed && cur().replySound !== undefined
+    voiceControlOn && !muted && !destroyed
     && (shoutLoopTimer !== 0 || shoutLoopLeft > 0)
   const syncVoice = (): void => {
     if (!voiceWanted()) {
@@ -772,7 +772,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (voice !== null || voiceStarting) return
     voiceStarting = true
     const handle = startVoiceStop({
-      templateSrcs: () => [cur().replySound, REPLY_REF],
+      templateSrcs: () => [REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
       onMatch: () => { stopShoutLoop(true) },
     })
