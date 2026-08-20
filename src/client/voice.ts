@@ -385,6 +385,8 @@ export class LiveMatcher {
 export interface VoiceStopOptions {
   /** 模板音 dataurl 列表（主模板=当前皮肤 replySound，另有带噪参考模板兜底）。 */
   templateSrcs(): Array<string | undefined>
+  /** 麦克风设备 id（空串 = 系统默认；设备不在时回落默认再试一次）。 */
+  micDeviceId?(): string
   /** 命中回调（pet 接线 stopShoutLoop(true)）。 */
   onMatch(): void
   onError?(err: unknown): void
@@ -477,12 +479,24 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
     } catch (err) {
       return fail(err)
     }
+    const wantDevice = opts.micDeviceId?.() ?? ''
+    const audioConstraint = (deviceId: string): MediaTrackConstraints => ({
+      channelCount: 1, echoCancellation: true, noiseSuppression: true,
+      ...(deviceId !== '' ? { deviceId: { exact: deviceId } } : {}),
+    })
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint(wantDevice) })
     } catch (err) {
-      return fail(err)
+      // 指定设备可能已不在（换浏览器/拔掉）：回落系统默认再试一次
+      if (wantDevice !== '' && (err as DOMException | null)?.name !== 'NotAllowedError') {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint('') })
+        } catch (err2) {
+          return fail(err2)
+        }
+      } else {
+        return fail(err)
+      }
     }
     if (stopped) {
       for (const t of stream.getTracks()) t.stop()

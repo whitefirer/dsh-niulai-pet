@@ -61,6 +61,8 @@ export const Config = z.object({
   replyNiulai: z.boolean().default(true),
   /** 语音停喊：循环喊期间开麦，喊「牛来」即停（需 https/localhost + 麦克风授权）。 */
   voiceControl: z.boolean().default(false),
+  /** 麦克风设备 id（空 = 系统默认；deviceId 按浏览器源发放，换浏览器缺此设备自动回落默认）。 */
+  micDeviceId: z.string().default(''),
 })
 
 /**

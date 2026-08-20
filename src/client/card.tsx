@@ -11,7 +11,7 @@
  * @module dsh-niulai-pet/card
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { SKINS } from './skins.js'
@@ -34,6 +34,8 @@ const zh = {
   voiceUnsupported: '当前访问方式不支持麦克风（需 https 或 localhost 打开）',
   voiceDenied: '麦克风授权被拒——若在 cenacle 内嵌窗口里，请换独立标签页打开 dsh 再开',
   voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
+  micDevice: '麦克风设备',
+  micDefault: '系统默认',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
   talkative: '气泡唠叨',
@@ -69,6 +71,8 @@ const en: Record<keyof typeof zh, string> = {
   voiceUnsupported: 'Microphone is unavailable on this origin (needs https or localhost)',
   voiceDenied: 'Microphone permission denied — if inside an embedded (cenacle) window, open dsh in its own tab and retry',
   voiceNoMic: 'No microphone device detected; voice stop stays off',
+  micDevice: 'Microphone',
+  micDefault: 'System default',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
   talkative: 'Chatter bubbles',
@@ -308,6 +312,29 @@ function micSupported(): boolean {
     && typeof navigator.mediaDevices?.getUserMedia === 'function'
 }
 
+/** 已授权的麦克风设备列表（label 要授权后才拿得到，未授权时只剩 deviceId）。 */
+function useMicDevices(active: boolean): Array<{ deviceId: string; label: string }> {
+  const [devices, setDevices] = useState<Array<{ deviceId: string; label: string }>>([])
+  useEffect(() => {
+    if (!active || !micSupported()) return
+    let stale = false
+    const load = (): void => {
+      navigator.mediaDevices.enumerateDevices().then((all) => {
+        if (stale) return
+        setDevices(all.filter((d) => d.kind === 'audioinput')
+          .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` })))
+      }, () => {})
+    }
+    load()
+    navigator.mediaDevices.addEventListener?.('devicechange', load)
+    return () => {
+      stale = true
+      navigator.mediaDevices.removeEventListener?.('devicechange', load)
+    }
+  }, [active])
+  return devices
+}
+
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
@@ -346,6 +373,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
     : voiceIssue === 'no-mic' ? t('voiceNoMic')
       : voiceIssue === 'denied' ? t('voiceDenied')
         : cfg.voiceControl ? t('voiceGranted') : t('voiceIdle')
+  const micDevices = useMicDevices(micOk && cfg.voiceControl)
   const skinName = SKINS.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
   const doneAction = cfg.actions[cfg.skin]?.done ?? 'signature'
   const pokeAction = cfg.actions[cfg.skin]?.poke ?? 'hops'
@@ -401,6 +429,21 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <Switch on={cfg.voiceControl} disabled={disabled || !micOk} label={t('voiceControl')} onChange={onVoice} />
             </Row>
             <div role="status" style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{voiceNote}</div>
+            {micOk && cfg.voiceControl
+              ? (
+                <Row label={t('micDevice')}>
+                  <select
+                    style={selectStyle(disabled)}
+                    value={cfg.micDeviceId}
+                    disabled={disabled}
+                    onChange={(e) => { props.set({ micDeviceId: e.target.value }) }}
+                  >
+                    <option value="" style={optionStyle}>{t('micDefault')}</option>
+                    {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
+                  </select>
+                </Row>
+              )
+              : null}
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
             </Row>

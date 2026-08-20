@@ -216,6 +216,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
   let voiceControlOn = initCfg.voiceControl
+  let micDeviceId = initCfg.micDeviceId
   let mood: Mood = 'idle'
   let destroyed = false
   let busyInfo: { since: number; label: string } | null = null
@@ -772,6 +773,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     voiceStarting = true
     const handle = startVoiceStop({
       templateSrcs: () => [cur().replySound, REPLY_REF],
+      micDeviceId: () => micDeviceId,
       onMatch: () => { stopShoutLoop(true) },
     })
     void handle.ready.then((ok) => {
@@ -1009,6 +1011,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
     voiceControlOn = c.voiceControl
+    if (c.micDeviceId !== micDeviceId) {
+      // 换麦克风：正在听就重启监听用上新设备
+      micDeviceId = c.micDeviceId
+      if (voice !== null) { voice.stop(); voice = null }
+      syncVoice()
+    }
     if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效（设置开关不算互动，不回一句）
     else syncVoice() // 循环跑着时开/关语音开关或静音，立即反映到麦克风
     const next = findSkin(c.skin)
