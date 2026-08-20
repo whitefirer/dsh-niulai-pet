@@ -11,8 +11,12 @@
  * 管线见 README。
  */
 import { build } from 'esbuild'
+import { readFileSync } from 'node:fs'
 
 const PLUGIN_ID = 'dsh-niulai-pet'
+// 版本号构建期从 package.json 注入（关于面板用），发版 bump 后自动跟随
+const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+const define = { __NIULAI_VERSION__: JSON.stringify(VERSION) }
 
 await build({
   bundle: true,
@@ -24,6 +28,7 @@ await build({
   format: 'cjs',
   platform: 'browser',
   target: 'es2022',
+  define,
   // react 由 dsh 运行时模块表提供（platform seed），同官方 bundle 的 external 约定
   external: ['react', 'react/jsx-runtime'],
   jsx: 'automatic',
@@ -56,6 +61,7 @@ await build({
   format: 'iife',
   platform: 'browser',
   target: 'es2022',
+  define,
   loader: {
     '.png': 'dataurl',
     '.mp3': 'dataurl',

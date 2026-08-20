@@ -120,17 +120,28 @@ function fft(re: Float64Array, im: Float64Array): void {
   }
 }
 
-/** 预加重（0.97）+ 分帧加窗 + 512 点 FFT + mel 滤波 + log + DCT-II → 13 维。 */
-function mfccOfFrame(y: Float64Array, start: number): number[] {
+/** 预加重（0.97）+ 分帧加窗 + 512 点 FFT + mel 滤波能量（log/DCT 前）。 */
+function melEnergies(y: Float64Array, start: number): Float64Array {
   const re = new Float64Array(FFT_SIZE)
   const im = new Float64Array(FFT_SIZE)
   for (let i = 0; i < FRAME_LEN; i++) re[i] = y[start + i] * HAMMING[i]
   fft(re, im)
+  const e = new Float64Array(MEL_FILTERS)
+  for (let m = 0; m < MEL_FILTERS; m++) {
+    let acc = 0
+    for (const [bin, w] of MEL_BANK[m]) acc += (re[bin] * re[bin] + im[bin] * im[bin]) * w
+    e[m] = acc
+  }
+  return e
+}
+
+/** mel 能量 → log + DCT-II → 13 维；给 noise（逐 mel  bin 底噪能量）时先做谱减。 */
+function mfccFromMel(e: Float64Array, noise?: Float64Array): number[] {
   const logE = new Float64Array(MEL_FILTERS)
   for (let m = 0; m < MEL_FILTERS; m++) {
-    let e = 0
-    for (const [bin, w] of MEL_BANK[m]) e += (re[bin] * re[bin] + im[bin] * im[bin]) * w
-    logE[m] = Math.log(Math.max(e, 1e-10))
+    // 谱减：削掉底噪抬升的基底，0.05e 托底防负值/过度消减吃掉语音
+    const v = noise === undefined ? e[m] : Math.max(e[m] - 1.3 * noise[m], 0.05 * e[m])
+    logE[m] = Math.log(Math.max(v, 1e-10))
   }
   const out: number[] = []
   for (let n = 0; n < MFCC_DIM; n++) {
@@ -142,6 +153,11 @@ function mfccOfFrame(y: Float64Array, start: number): number[] {
   return out
 }
 
+/** 单帧 MFCC（无谱减，LiveMatcher 内联路径以外的地方用）。 */
+function mfccOfFrame(y: Float64Array, start: number, noise?: Float64Array): number[] {
+  return mfccFromMel(melEnergies(y, start), noise)
+}
+
 /** 预加重后的整段信号（mfccOfFrame 的输入）。 */
 function preEmphasis(pcm: Float32Array): Float64Array {
   const y = new Float64Array(pcm.length)
@@ -150,13 +166,31 @@ function preEmphasis(pcm: Float32Array): Float64Array {
   return y
 }
 
-/** 整段 PCM → MFCC 帧序列（尾不足一窗丢弃）。 */
-export function mfccFrames(pcm: Float32Array): number[][] {
+/** 整段 PCM → MFCC 帧序列（尾不足一窗丢弃）。denoise=true 时先按全体帧的
+ *  逐 bin 能量 10% 分位估计底噪，再做谱减（对白噪/风扇这类平稳噪声显著更稳）。 */
+export function mfccFrames(pcm: Float32Array, denoise = false): number[][] {
   const y = preEmphasis(pcm)
   const frames: number[][] = []
-  for (let start = 0; start + FRAME_LEN <= pcm.length; start += FRAME_STEP) {
-    frames.push(mfccOfFrame(y, start))
+  if (!denoise) {
+    for (let start = 0; start + FRAME_LEN <= pcm.length; start += FRAME_STEP) {
+      frames.push(mfccOfFrame(y, start))
+    }
+    return frames
   }
+  const mels: Float64Array[] = []
+  for (let start = 0; start + FRAME_LEN <= pcm.length; start += FRAME_STEP) {
+    mels.push(melEnergies(y, start))
+  }
+  if (mels.length === 0) return frames
+  const noise = new Float64Array(MEL_FILTERS)
+  const col: number[] = []
+  for (let m = 0; m < MEL_FILTERS; m++) {
+    col.length = 0
+    for (const e of mels) col.push(e[m])
+    col.sort((a, b) => a - b)
+    noise[m] = col[Math.floor(col.length * 0.1)]
+  }
+  for (const e of mels) frames.push(mfccFromMel(e, noise))
   return frames
 }
 
@@ -279,17 +313,21 @@ export function matchScore(template: number[][], input: number[][], metric: Fram
 export class LiveMatcher {
   private readonly ring: number[][] = []
   private carry = new Float32Array(0)
+  /** 逐 mel bin 底噪能量 EMA（低于语音门的帧喂入），谱减用。 */
+  private noise: Float64Array | null = null
   private gateLeft = 0
   private sinceEval = 0
   private fired = false
-  private readonly template: number[][]
+  private readonly templates: number[][][]
   private readonly onHit: () => void
   private readonly threshold: number
   /** 最近一次评估分（调试/测试观测用；未评估过为 Infinity）。 */
   lastScore = Infinity
 
-  constructor(template: number[][], onHit: () => void, threshold: number = VOICE_MATCH_THRESHOLD) {
-    this.template = template
+  /** 多模板：同一句话的两条录音（干净版+带底噪版），打分取 min——带噪输入
+   *  对带噪模板更友好，干净输入对干净模板更准，互补。 */
+  constructor(templates: number[][][] | number[][], onHit: () => void, threshold: number = VOICE_MATCH_THRESHOLD) {
+    this.templates = Array.isArray(templates[0]?.[0]) ? templates as number[][][] : [templates as number[][]]
     this.onHit = onHit
     this.threshold = threshold
   }
@@ -305,20 +343,27 @@ export class LiveMatcher {
       let acc = 0
       for (let i = 0; i < FRAME_LEN; i++) acc += joined[pos + i] * joined[pos + i]
       const rms = Math.sqrt(acc / FRAME_LEN)
-      // MFCC（预加重单帧内联，避免整段重算）
+      // MFCC（预加重单帧内联，避免整段重算）；低能帧顺手喂底噪 EMA 做谱减
       const y = new Float64Array(FRAME_LEN)
       y[0] = joined[pos]
       for (let i = 1; i < FRAME_LEN; i++) y[i] = joined[pos + i] - 0.97 * joined[pos + i - 1]
-      this.ring.push(mfccOfFrame(y, 0))
+      const mel = melEnergies(y, 0)
+      if (rms < VAD_RMS_FLOOR) {
+        if (this.noise === null) this.noise = new Float64Array(mel)
+        else for (let m = 0; m < MEL_FILTERS; m++) this.noise[m] = 0.92 * this.noise[m] + 0.08 * mel[m]
+      }
+      this.ring.push(mfccFromMel(mel, this.noise ?? undefined))
       if (this.ring.length > RING_FRAMES) this.ring.shift()
       // 能量门 + 挂起
       if (rms >= VAD_RMS_FLOOR) this.gateLeft = GATE_HANGOVER
       else if (this.gateLeft > 0) this.gateLeft--
-      // 滑窗不足模板 0.6 倍不评：过短的输入会让模板过度压缩出假命中
-      if (this.gateLeft > 0 && this.ring.length >= Math.ceil(this.template.length * 0.6)
-        && ++this.sinceEval >= EVAL_EVERY) {
+      // 滑窗不足模板 0.6 倍不评：过短的输入会让模板过度压缩出假命中。
+      // 多模板各自守门，分 = 各模板最小值（任一模板命中即算命中）
+      if (this.gateLeft > 0 && ++this.sinceEval >= EVAL_EVERY) {
+        const usable = this.templates.filter((t) => this.ring.length >= Math.ceil(t.length * 0.6))
+        if (usable.length === 0) { pos += FRAME_STEP; continue }
         this.sinceEval = 0
-        this.lastScore = matchScore(this.template, this.ring)
+        this.lastScore = Math.min(...usable.map((t) => matchScore(t, this.ring)))
         if (this.lastScore < this.threshold) {
           this.fired = true
           console.log(`[dsh-niulai-pet] voice-stop matched (score ${this.lastScore.toFixed(3)})`)
@@ -335,8 +380,8 @@ export class LiveMatcher {
 // ---- 浏览器薄壳（以下函数体内部才碰浏览器 API，模块顶层不碰）----
 
 export interface VoiceStopOptions {
-  /** 模板音 dataurl（妈妈回应「牛来！」，即 cur().replySound）。 */
-  templateSrc(): string | undefined
+  /** 模板音 dataurl 列表（主模板=当前皮肤 replySound，另有带噪参考模板兜底）。 */
+  templateSrcs(): Array<string | undefined>
   /** 命中回调（pet 接线 stopShoutLoop(true)）。 */
   onMatch(): void
   onError?(err: unknown): void
@@ -414,14 +459,18 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
 
   const ready = (async (): Promise<boolean> => {
     if (!voiceCapable()) return false
-    const src = opts.templateSrc()
-    if (src === undefined) return false
-    let template: number[][]
+    const srcs = opts.templateSrcs().filter((s): s is string => s !== undefined)
+    if (srcs.length === 0) return false
+    let templates: number[][][]
     try {
-      const pcm = await decodeToPcm16k(src)
-      if (stopped) return false
-      template = trimByEnergy(mfccFrames(pcm), frameRmsSeries(pcm))
-      if (template.length < 10) return false
+      templates = []
+      for (const src of srcs) {
+        const pcm = await decodeToPcm16k(src)
+        if (stopped) return false
+        const tpl = trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm))
+        if (tpl.length >= 10) templates.push(tpl)
+      }
+      if (templates.length === 0) return false
     } catch (err) {
       return fail(err)
     }
@@ -444,7 +493,7 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       ctx = new AC()
       if (ctx.state === 'suspended') void ctx.resume()
       const rate = ctx.sampleRate
-      const matcher = new LiveMatcher(template, () => { opts.onMatch() })
+      const matcher = new LiveMatcher(templates, () => { opts.onMatch() })
       const source = ctx.createMediaStreamSource(stream)
       proc = ctx.createScriptProcessor(4096, 1, 1)
       proc.onaudioprocess = (e) => {

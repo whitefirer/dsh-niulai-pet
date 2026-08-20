@@ -18,6 +18,7 @@
 
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
+import { REPLY_REF } from './skins.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
 export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
@@ -267,7 +268,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   aboutTitle.textContent = '🐮 牛来桌宠'
   aboutTitle.style.cssText = 'font-weight:700;font-size:14px'
   const aboutVer = document.createElement('div')
-  aboutVer.textContent = 'dsh-niulai-pet v0.1.0 · by whitefirer'
+  // 版本号由构建期 define 注入（build.mjs 读 package.json），发版自动跟随
+  aboutVer.textContent = `dsh-niulai-pet v${__NIULAI_VERSION__} · by whitefirer`
   aboutVer.style.cssText = 'color:#a1a1aa;font-size:12px'
   const aboutNote = document.createElement('div')
   aboutNote.textContent = '动作与叫声均为程序生成'
@@ -769,7 +771,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (voice !== null || voiceStarting) return
     voiceStarting = true
     const handle = startVoiceStop({
-      templateSrc: () => cur().replySound,
+      templateSrcs: () => [cur().replySound, REPLY_REF],
       onMatch: () => { stopShoutLoop(true) },
     })
     void handle.ready.then((ok) => {

@@ -27,10 +27,17 @@ import whaleSpout from '../../assets/whale_spout.png'
 import mama1 from '../../assets/mama1.mp3'
 import mama2 from '../../assets/mama2.mp3'
 import replyNiulai from '../../assets/reply.mp3'
+import replyRef from '../../assets/reply_ref.mp3'
 import petOrig from '../../assets/pet_orig.png'
 import petOrigShout from '../../assets/pet_orig_shout.png'
 import petOrigBlink from '../../assets/pet_orig_blink.png'
 import type { SkinDef } from './pet.js'
+
+/**
+ * 语音识别参考模板（带原片底噪的旧版「牛来！」）：与干净版 reply.mp3 双模板
+ * 互补——带噪输入对带噪模板更友好，干净输入对干净模板更准（voice.ts 取 min）。
+ */
+export const REPLY_REF = replyRef
 
 /** 皮肤注册表（demo standalone 试玩页也复用此表）。新增皮肤时同步 host 半 index.js 的 SKIN_IDS。 */
 export const SKINS: SkinDef[] = [
