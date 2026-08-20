@@ -322,6 +322,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   /** 在播的喊声（语音/互动打断时当场掐断用）。 */
   let playingAudio: HTMLAudioElement | null = null
+  /** 连喊链在放（非循环模式；戳一下应声用）。 */
+  let chainActive = false
 
   /** 放一声当前皮肤的叫声，返回时长 ms（0=无声/被静音）。 */
   const playVoice = (): number => {
@@ -757,9 +759,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
    *  （bool 旗会被新一轮复位误伤——旧链会复活，用代际一了百了）。 */
   let celebrateGen = 0
 
-  /** 当场掐断在播的喊声 + 合嘴（打断语义：被应声了还喊完长尾音就像没听见）。 */
+  /** 当场掐断在播的喊声 + 合嘴 + 连喊链作废（打断语义：被应声了还喊完长尾音就像没听见）。 */
   const cutPlayingShout = (): void => {
     celebrateGen++
+    chainActive = false
     if (playingAudio !== null) {
       playingAudio.pause()
       playingAudio = null
@@ -869,9 +872,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       } else {
         // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
         const gen = celebrateGen
+        chainActive = true
         const chain = (n: number): void => {
-          if (destroyed || gen !== celebrateGen) return
+          if (destroyed || gen !== celebrateGen) { chainActive = false; return }
           if (n <= 0) {
+            chainActive = false
             playReply() // 接龙放完妈妈回一句
             return
           }
@@ -918,9 +923,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
-    // 循环在跑时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
+    // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
     const wasLooping = stopShoutLoop(true, '戳一下')
-    if (!wasLooping) shout()
+    const wasChain = chainActive
+    if (wasChain) {
+      cutPlayingShout()
+      playReply()
+    }
+    if (!wasLooping && !wasChain) shout()
     runAction(pokeAction())
   }
 

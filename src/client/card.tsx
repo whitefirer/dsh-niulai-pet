@@ -240,20 +240,6 @@ function Switch(props: { on: boolean; disabled: boolean; label: string; onChange
   )
 }
 
-function Stepper(props: { value: number; min: number; max: number; disabled: boolean; label: string; onChange(n: number): void }) {
-  const btnStyle = (off: boolean): React.CSSProperties => ({
-    width: 24, height: 24, borderRadius: 6, border: `1px solid ${colors.border}`, padding: 0,
-    background: 'none', color: colors.labelPrimary, fontSize: 14, lineHeight: 1,
-    cursor: off ? 'default' : 'pointer', opacity: off ? 0.35 : 1,
-  })
-  return (
-    <span role="group" aria-label={props.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      <button type="button" style={btnStyle(props.disabled || props.value <= props.min)} disabled={props.disabled || props.value <= props.min} onClick={() => { props.onChange(props.value - 1) }}>−</button>
-      <span style={{ minWidth: 14, textAlign: 'center', color: colors.labelPrimary, fontSize: 13 }}>{props.value}</span>
-      <button type="button" style={btnStyle(props.disabled || props.value >= props.max)} disabled={props.disabled || props.value >= props.max} onClick={() => { props.onChange(props.value + 1) }}>+</button>
-    </span>
-  )
-}
 
 const selectStyle = (disabled: boolean): React.CSSProperties => ({
   appearance: 'none', border: `1px solid ${colors.border}`, borderRadius: 8,
@@ -657,7 +643,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <Switch on={cfg.shoutOnDone} disabled={disabled} label={t('shoutOnDone')} onChange={(on) => { props.set({ shoutOnDone: on }) }} />
             </Row>
             <Row label={t('shoutCount')}>
-              <Stepper value={cfg.shoutCount} min={1} max={10} disabled={disabled} label={t('shoutCount')} onChange={(n) => { props.set({ shoutCount: n }) }} />
+              <NumberField value={cfg.shoutCount} min={1} max={99} disabled={disabled} label={t('shoutCount')} onCommit={(n) => { props.set({ shoutCount: n }) }} />
             </Row>
             <Row label={t('doneDelay')}>
               <NumberField value={cfg.doneDelaySec} min={0} max={120} disabled={disabled} label={t('doneDelay')}

@@ -302,7 +302,7 @@ export class ConfigStore {
       muted: p.muted === true,
       shoutOnDone: p.shoutOnDone !== false,
       shoutCount: typeof p.shoutCount === 'number' && Number.isInteger(p.shoutCount)
-        ? Math.min(10, Math.max(1, p.shoutCount)) : 1,
+        ? Math.min(99, Math.max(1, p.shoutCount)) : 1,
       talkative: p.talkative !== false,
       skin: this.validSkin(p.skin),
       actions: this.sanitizeActions(p.actions),
