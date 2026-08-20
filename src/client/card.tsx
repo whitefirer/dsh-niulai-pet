@@ -11,11 +11,12 @@
  * @module dsh-niulai-pet/card
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { SKINS } from './skins.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
+import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
 /** 卡片编辑的命名空间（与 host 半 settingsNamespace('niulai-pet') 配对，改名两边同步）。 */
 export const CARD_NS = 'niulai-pet'
@@ -39,6 +40,9 @@ const zh = {
   micTest: '测试',
   micTestStop: '停止',
   micTestHint: '说句话，电平条应起伏',
+  voiceDbgOff: '识别状态：未在听（循环喊进行时才开麦）',
+  voiceDbgOn: '识别状态：监听中，最近得分 {score}（越小越像「牛来」；连续过阈才停）',
+  voiceDbgHit: '识别状态：刚才识别到「牛来」！',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
   talkative: '气泡唠叨',
@@ -79,6 +83,9 @@ const en: Record<keyof typeof zh, string> = {
   micTest: 'Test',
   micTestStop: 'Stop',
   micTestHint: 'Say something — the level bar should move',
+  voiceDbgOff: 'Voice match: idle (mic opens only while loop-shouting)',
+  voiceDbgOn: 'Voice match: listening, last score {score} (lower = closer to "Niulai")',
+  voiceDbgHit: 'Voice match: heard "Niulai!" just now',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
   talkative: 'Chatter bubbles',
@@ -114,6 +121,8 @@ export interface NiulaiCardFace {
   hooks: { niulaiPet: { getSnapshot(): NiulaiCardState; subscribe(fn: () => void): () => void } }
   set(patch: PetConfigPatch): void
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
+  /** 语音停喊调试状态（识别分/是否在听/命中时刻），pet 侧 publish。 */
+  voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
 }
 
 /** 组件 props（框架 t 座 + 注入面绑定后的形态，结构化自描）。 */
@@ -122,6 +131,7 @@ export interface NiulaiCardProps {
   useNiulaiPet<S>(selector: (state: NiulaiCardState) => S): S
   set(patch: PetConfigPatch): void
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
+  voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
 }
 
 /** 卡片状态源：合并 ConfigStore（生效配置）与 scope（ready/writable）为一个 observable。 */
@@ -133,6 +143,7 @@ class CardController {
   constructor(
     private readonly store: ConfigStore,
     scope: SettingsScopeLike,
+    private readonly voiceDebug?: VoiceDebugBus,
   ) {
     this.state = this.project(scope)
     const rebuild = (): void => {
@@ -159,6 +170,7 @@ class CardController {
     return {
       hooks: { niulaiPet: this.observable },
       set: (patch) => { this.store.set(patch) },
+      voiceDebug: this.voiceDebug,
       setSkinAction: (skin, event, action) => { this.store.setSkinAction(skin, event, action) },
     }
   }
@@ -312,6 +324,9 @@ function QuipsField(props: { value: string[]; disabled: boolean; placeholder: st
   )
 }
 
+const noopSubscribe = (): (() => void) => () => {}
+const nullSnapshot = (): null => null
+
 /** 麦克风可用性：非安全上下文（局域网 http）下 getUserMedia 直接不存在，只能禁用说明。 */
 function micSupported(): boolean {
   return typeof window !== 'undefined' && window.isSecureContext
@@ -380,7 +395,7 @@ function MicTest(props: { deviceId: string; labels: { test: string; stop: string
     }
   }, [testing, props.deviceId])
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ padding: '2px 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
       <button
         type="button"
         style={{
@@ -391,14 +406,15 @@ function MicTest(props: { deviceId: string; labels: { test: string; stop: string
       >{testing ? props.labels.stop : props.labels.test}</button>
       {testing
         ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={props.labels.hint}>
-            <span style={{ width: 90, height: 8, borderRadius: 4, border: `1px solid ${colors.border}`, overflow: 'hidden', display: 'inline-block' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1 }} title={props.labels.hint}>
+            <span style={{ flex: 1, maxWidth: 220, height: 8, borderRadius: 4, border: `1px solid ${colors.border}`, overflow: 'hidden', display: 'inline-block' }}>
               <span style={{ display: 'block', height: '100%', width: `${Math.round(level * 100)}%`, background: 'var(--dsw-alias-state-success-primary, #22c55e)', transition: 'width .06s' }} />
             </span>
+            <span style={{ fontSize: 11, color: colors.labelTertiary }}>{props.labels.hint}</span>
           </span>
         )
         : null}
-    </span>
+    </div>
   )
 }
 
@@ -441,6 +457,17 @@ export function NiulaiCard(props: NiulaiCardProps) {
       : voiceIssue === 'denied' ? t('voiceDenied')
         : cfg.voiceControl ? t('voiceGranted') : t('voiceIdle')
   const micDevices = useMicDevices(micOk && cfg.voiceControl)
+  const vdbg = props.voiceDebug
+  const vdbgState = useSyncExternalStore(
+    vdbg !== undefined ? vdbg.subscribe : noopSubscribe,
+    vdbg !== undefined ? vdbg.getSnapshot : nullSnapshot,
+  )
+  const dbgHit = vdbgState?.matchedAt != null && Date.now() - vdbgState.matchedAt < 15000
+  const voiceDbgText = dbgHit
+    ? t('voiceDbgHit')
+    : vdbgState?.listening === true
+      ? t('voiceDbgOn', { score: vdbgState.lastScore?.toFixed(2) ?? '—' })
+      : t('voiceDbgOff')
   const skinName = SKINS.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
   const doneAction = cfg.actions[cfg.skin]?.done ?? 'signature'
   const pokeAction = cfg.actions[cfg.skin]?.poke ?? 'hops'
@@ -497,9 +524,12 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <div role="status" style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{voiceNote}</div>
             {micOk && cfg.voiceControl
+              ? <div role="status" style={{ margin: '0 0 4px', fontSize: 12, lineHeight: 1.5, color: dbgHit ? 'var(--dsw-alias-state-success-primary, #22c55e)' : colors.labelTertiary }}>{voiceDbgText}</div>
+              : null}
+            {micOk && cfg.voiceControl
               ? (
-                <Row label={t('micDevice')}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <>
+                  <Row label={t('micDevice')}>
                     <select
                       style={selectStyle(disabled)}
                       value={cfg.micDeviceId}
@@ -509,9 +539,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       <option value="" style={optionStyle}>{t('micDefault')}</option>
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
-                    <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint') }} />
-                  </span>
-                </Row>
+                  </Row>
+                  <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint') }} />
+                </>
               )
               : null}
             <Row label={t('talkative')}>
@@ -576,11 +606,11 @@ interface CardCtx {
  * 注册双语字典、按 slot 声明生命周期注册卡片。rc.6 无这些服务时
  * 本函数所在的 ctx.inject 子 fiber 永不激活，什么都不会发生。
  */
-export function registerSettingsCard(ctx: CardCtx, store: ConfigStore): void {
+export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus): void {
   const scope = ctx.settingsScope.bind({ namespace: CARD_NS })
   ctx.effect(() => store.attachScope(scope), 'niulai-pet settings scope')
   ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), 'niulai-pet card locales')
-  const controller = new CardController(store, scope)
+  const controller = new CardController(store, scope, voiceDebug)
   ctx.effect(() => () => { controller.dispose() }, 'niulai-pet card controller')
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',

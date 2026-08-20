@@ -330,15 +330,18 @@ export class LiveMatcher {
   private readonly templates: number[][][]
   private readonly onHit: () => void
   private readonly threshold: number
+  private readonly onScore?: (score: number) => void
   /** 最近一次评估分（调试/测试观测用；未评估过为 Infinity）。 */
   lastScore = Infinity
 
   /** 多模板：同一句话的两条录音（干净版+带底噪版），打分取 min——带噪输入
    *  对带噪模板更友好，干净输入对干净模板更准，互补。 */
-  constructor(templates: number[][][] | number[][], onHit: () => void, threshold: number = VOICE_MATCH_THRESHOLD) {
+  constructor(templates: number[][][] | number[][], onHit: () => void, threshold: number = VOICE_MATCH_THRESHOLD,
+    onScore?: (score: number) => void) {
     this.templates = Array.isArray(templates[0]?.[0]) ? templates as number[][][] : [templates as number[][]]
     this.onHit = onHit
     this.threshold = threshold
+    this.onScore = onScore
   }
 
   feed(chunk: Float32Array): void {
@@ -373,6 +376,7 @@ export class LiveMatcher {
         if (usable.length === 0) { pos += FRAME_STEP; continue }
         this.sinceEval = 0
         this.lastScore = Math.min(...usable.map((t) => matchScore(t, this.ring)))
+        this.onScore?.(this.lastScore)
         // 防抖：连续 HIT_CONSECUTIVE 次过阈才命中。短模板（0.5s 级）下「妈妈」
         // 的某个局部片段能单次压线，但不像真口令那样在一串滑窗上持续走低
         if (this.lastScore < this.threshold) {
@@ -402,6 +406,8 @@ export interface VoiceStopOptions {
   micDeviceId?(): string
   /** 命中回调（pet 接线 stopShoutLoop(false)：用户已亲自喊「牛来」，不再播妈妈录音）。 */
   onMatch(): void
+  /** 每次评估报分（调试用：卡片状态行显示「识别到什么程度了」）。 */
+  onScore?(score: number): void
   onError?(err: unknown): void
 }
 
@@ -524,7 +530,7 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       ctx = new AC()
       if (ctx.state === 'suspended') void ctx.resume()
       const rate = ctx.sampleRate
-      const matcher = new LiveMatcher(templates, () => { opts.onMatch() })
+      const matcher = new LiveMatcher(templates, () => { opts.onMatch() }, VOICE_MATCH_THRESHOLD, (score) => { opts.onScore?.(score) })
       const source = ctx.createMediaStreamSource(stream)
       proc = ctx.createScriptProcessor(4096, 1, 1)
       proc.onaudioprocess = (e) => {

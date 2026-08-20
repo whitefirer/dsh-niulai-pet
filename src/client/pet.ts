@@ -19,6 +19,7 @@
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
+import type { VoiceDebugBus } from './voice-debug.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
 export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
@@ -194,7 +195,7 @@ function synthSqueak(ctx: AudioContext): void {
   }
 }
 
-export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
+export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
   const skins = assets.skins.length > 0
     ? assets.skins
     : [{ id: 'fallback', name: '桌宠', image: '', voice: null, signature: 'hops' as ActionName, shoutBubble: '' }]
@@ -767,9 +768,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   const voiceWanted = (): boolean =>
     voiceControlOn && !muted && !destroyed
     && (shoutLoopTimer !== 0 || shoutLoopLeft > 0)
+  let lastScoreFwd = 0
   const syncVoice = (): void => {
     if (!voiceWanted()) {
-      if (voice !== null) { voice.stop(); voice = null }
+      if (voice !== null) {
+        voice.stop()
+        voice = null
+        voiceDebug?.publish({ listening: false })
+      }
       return
     }
     if (voice !== null || voiceStarting) return
@@ -777,13 +783,24 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     const handle = startVoiceStop({
       templateSrcs: () => [REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
-      onMatch: () => { stopShoutLoop(false, '语音命中') },
+      onMatch: () => {
+        voiceDebug?.publish({ matchedAt: Date.now(), listening: false })
+        stopShoutLoop(false, '语音命中')
+      },
+      // 报分节流：评估每 50ms 一次，卡片状态行 300ms 一刷足够
+      onScore: (score) => {
+        const now = Date.now()
+        if (now - lastScoreFwd < 300) return
+        lastScoreFwd = now
+        voiceDebug?.publish({ lastScore: score })
+      },
     })
     void handle.ready.then((ok) => {
       voiceStarting = false
       if (!ok) return
       if (voiceWanted()) {
         voice = handle
+        voiceDebug?.publish({ listening: true, lastScore: null })
       } else {
         handle.stop() // 就绪期间循环已被互动停掉：立即关麦，不留尾巴
       }
