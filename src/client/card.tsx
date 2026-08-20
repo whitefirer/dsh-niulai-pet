@@ -36,6 +36,9 @@ const zh = {
   voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
   micDevice: '麦克风设备',
   micDefault: '系统默认',
+  micTest: '测试',
+  micTestStop: '停止',
+  micTestHint: '说句话，电平条应起伏',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
   talkative: '气泡唠叨',
@@ -73,6 +76,9 @@ const en: Record<keyof typeof zh, string> = {
   voiceNoMic: 'No microphone device detected; voice stop stays off',
   micDevice: 'Microphone',
   micDefault: 'System default',
+  micTest: 'Test',
+  micTestStop: 'Stop',
+  micTestHint: 'Say something — the level bar should move',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
   talkative: 'Chatter bubbles',
@@ -313,8 +319,7 @@ function micSupported(): boolean {
 }
 
 /** 已授权的麦克风设备列表（label 要授权后才拿得到，未授权时只剩 deviceId）。 */
-function useMicDevices(active: boolean): Array<{ deviceId: string; label: string }> {
-  const [devices, setDevices] = useState<Array<{ deviceId: string; label: string }>>([])
+function useMicDevices(active: boolean): Array<{ deviceId: string; label: string }> {  const [devices, setDevices] = useState<Array<{ deviceId: string; label: string }>>([])
   useEffect(() => {
     if (!active || !micSupported()) return
     let stale = false
@@ -333,6 +338,68 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
     }
   }, [active])
   return devices
+}
+
+/** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
+function MicTest(props: { deviceId: string; labels: { test: string; stop: string; hint: string } }) {
+  const [testing, setTesting] = useState(false)
+  const [level, setLevel] = useState(0)
+  useEffect(() => {
+    if (!testing) return
+    let stop = false
+    let raf = 0
+    let stream: MediaStream | null = null
+    let actx: AudioContext | null = null
+    navigator.mediaDevices.getUserMedia({
+      audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
+    }).then((s) => {
+      if (stop) { for (const t of s.getTracks()) t.stop(); return }
+      stream = s
+      actx = new AudioContext()
+      const src = actx.createMediaStreamSource(s)
+      const analyser = actx.createAnalyser()
+      analyser.fftSize = 512
+      src.connect(analyser)
+      const buf = new Uint8Array(analyser.fftSize)
+      const tick = (): void => {
+        if (stop) return
+        analyser.getByteTimeDomainData(buf)
+        let acc = 0
+        for (const v of buf) { const d = (v - 128) / 128; acc += d * d }
+        setLevel(Math.min(1, Math.sqrt(acc / buf.length) * 4)) // RMS ×4 视觉增益
+        raf = requestAnimationFrame(tick)
+      }
+      tick()
+    }, () => { setTesting(false) })
+    return () => {
+      stop = true
+      cancelAnimationFrame(raf)
+      if (stream !== null) for (const t of stream.getTracks()) t.stop()
+      if (actx !== null) void actx.close().catch(() => {})
+      setLevel(0)
+    }
+  }, [testing, props.deviceId])
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <button
+        type="button"
+        style={{
+          font: 'inherit', fontSize: 12, padding: '3px 12px', borderRadius: 7, cursor: 'pointer',
+          border: `1px solid ${colors.border}`, background: 'none', color: colors.labelPrimary,
+        }}
+        onClick={() => { setTesting(!testing) }}
+      >{testing ? props.labels.stop : props.labels.test}</button>
+      {testing
+        ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={props.labels.hint}>
+            <span style={{ width: 90, height: 8, borderRadius: 4, border: `1px solid ${colors.border}`, overflow: 'hidden', display: 'inline-block' }}>
+              <span style={{ display: 'block', height: '100%', width: `${Math.round(level * 100)}%`, background: 'var(--dsw-alias-state-success-primary, #22c55e)', transition: 'width .06s' }} />
+            </span>
+          </span>
+        )
+        : null}
+    </span>
+  )
 }
 
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
@@ -432,15 +499,18 @@ export function NiulaiCard(props: NiulaiCardProps) {
             {micOk && cfg.voiceControl
               ? (
                 <Row label={t('micDevice')}>
-                  <select
-                    style={selectStyle(disabled)}
-                    value={cfg.micDeviceId}
-                    disabled={disabled}
-                    onChange={(e) => { props.set({ micDeviceId: e.target.value }) }}
-                  >
-                    <option value="" style={optionStyle}>{t('micDefault')}</option>
-                    {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
-                  </select>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <select
+                      style={selectStyle(disabled)}
+                      value={cfg.micDeviceId}
+                      disabled={disabled}
+                      onChange={(e) => { props.set({ micDeviceId: e.target.value }) }}
+                    >
+                      <option value="" style={optionStyle}>{t('micDefault')}</option>
+                      {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
+                    </select>
+                    <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint') }} />
+                  </span>
                 </Row>
               )
               : null}

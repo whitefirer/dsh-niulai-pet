@@ -186,11 +186,20 @@ export class ConfigStore {
     for (const [field, value] of Object.entries(patch)) {
       if (value === undefined) continue
       this.pending.set(field, value)
-      // 落地或失败都算定案：清掉该字段的乐观覆盖，以 Host 接受的快照为准
+      // 落地（resolve）时**不急着清**乐观覆盖：host 接受与文档回播之间有个窗口，
+      // 此刻清掉会让快照闪回旧值（订阅方看到开关抖动——循环喊曾被这么闪停过）。
+      // pending 在 resolve() 里等快照真正反映出该值时才落槌；拒绝/3s 兜底才清。
       void scope.set(field, value).then(
-        () => { this.pending.delete(field); this.republish() },
+        () => { this.republish() },
         () => { this.pending.delete(field); this.republish() },
       )
+      const captured = value
+      setTimeout(() => {
+        if (JSON.stringify(this.pending.get(field)) === JSON.stringify(captured)) {
+          this.pending.delete(field)
+          this.republish()
+        }
+      }, 3000)
     }
     this.republish()
   }
@@ -259,7 +268,7 @@ export class ConfigStore {
     for (const fn of this.listeners) fn()
   }
 
-  /** 从当前后端解析生效配置（scope 模式叠 pending 乐观层）。 */
+  /** 从当前后端解析生效配置（scope 模式叠 pending 乐观层；快照已反映的 pending 落槌清除）。 */
   private resolve(): PetConfig {
     const scope = this.scope
     if (scope === undefined) return this.fromPersisted(loadPersisted(this.skinIds, this.defaultSkin))
@@ -267,6 +276,11 @@ export class ConfigStore {
     if (this.pending.size === 0) return cfg
     const merged: PetConfig = { ...cfg, actions: { ...cfg.actions } }
     for (const [field, value] of this.pending) {
+      // host 快照已反映出该值 → 落槌（值以快照为准），不再叠乐观层
+      if (JSON.stringify(cfg[field as keyof PetConfig]) === JSON.stringify(value)) {
+        this.pending.delete(field)
+        continue
+      }
       if (field === 'actions' && isRecord(value)) {
         merged.actions = this.sanitizeActions(value)
       } else if (field in merged) {

@@ -475,8 +475,7 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
     return false
   }
 
-  const ready = (async (): Promise<boolean> => {
-    if (!voiceCapable()) return false
+  const ready = (async (): Promise<boolean> => {    if (!voiceCapable()) return false
     const srcs = opts.templateSrcs().filter((s): s is string => s !== undefined)
     if (srcs.length === 0) return false
     let templates: number[][][]

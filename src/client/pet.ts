@@ -745,12 +745,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   // （戳/拖/新任务开始/静音或开关关闭）；60 声兜底自停，防忘关叫一宿。
   let shoutLoopTimer = 0
   let shoutLoopLeft = 0
-  /** 停循环；withReply=true（互动/新任务打断）且循环确实在跑时，妈妈回一句。 */
-  const stopShoutLoop = (withReply = false): void => {
+  /** 停循环；withReply=true（互动/新任务打断）且循环确实在跑时，妈妈回一句。
+   *  reason 只为定位「谁停的」留日志（踩过「没互动就停」的排查坑）。 */
+  const stopShoutLoop = (withReply = false, reason = '?'): void => {
     const wasActive = shoutLoopTimer !== 0 || shoutLoopLeft > 0
     window.clearTimeout(shoutLoopTimer)
     shoutLoopTimer = 0
     shoutLoopLeft = 0
+    if (wasActive) console.log(`[dsh-niulai-pet] shout loop stop: ${reason}`)
     if (withReply && wasActive) playReply()
     syncVoice() // 循环停 → 立即关麦停流
   }
@@ -775,7 +777,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     const handle = startVoiceStop({
       templateSrcs: () => [REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
-      onMatch: () => { stopShoutLoop(false) },
+      onMatch: () => { stopShoutLoop(false, '语音命中') },
     })
     void handle.ready.then((ok) => {
       voiceStarting = false
@@ -790,8 +792,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
 
   const shoutLoopTick = (): void => {
     shoutLoopTimer = 0
-    if (destroyed || !shoutLoopOn || muted || shoutLoopLeft <= 0 || mood === 'drag' || mood === 'fly') {
-      stopShoutLoop()
+    if (destroyed || !shoutLoopOn || muted || shoutLoopLeft <= 0) {
+      stopShoutLoop(false, '喊够/开关关闭')
+      return
+    }
+    if (mood === 'drag' || mood === 'fly') {
+      // 动作（飞行/跃出水面）或拖拽中：这声先不喊、过 1.2s 再试，不消耗次数。
+      // 此前是直接 stop——完成动作选了飞/随机时循环第一声都没放就死了（踩过）
+      shoutLoopTimer = window.setTimeout(shoutLoopTick, 1200)
       return
     }
     shoutLoopLeft--
@@ -836,7 +844,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     const now = Date.now()
     if (now - lastCelebrate < 6000 || mood === 'drag' || mood === 'fly' || destroyed) return
     lastCelebrate = now
-    stopShoutLoop() // 新一轮完成顶掉上一轮未停的循环
+    stopShoutLoop(false, '新一轮完成顶掉') // 新一轮完成顶掉上一轮未停的循环
     const delayMs = doneDelaySec * 1000
     if (delayMs > 0) {
       window.setTimeout(() => { if (!destroyed) fireCelebrate() }, delayMs)
@@ -861,7 +869,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
-    stopShoutLoop(true)
+    stopShoutLoop(true, '戳一下')
     shout()
     runAction(pokeAction())
   }
@@ -880,7 +888,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (menu.contains(ev.target as Node) || about.contains(ev.target as Node)) return
     dragging = false
     downAt = performance.now()
-    stopShoutLoop(true) // 任意上手互动（含拖拽与点击预备）都停循环喊，妈妈回一句
+    stopShoutLoop(true, '上手互动') // 任意上手互动（含拖拽与点击预备）都停循环喊，妈妈回一句
     dragStartX = ev.clientX
     dragStartY = ev.clientY
     petStartX = x
@@ -1018,7 +1026,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       if (voice !== null) { voice.stop(); voice = null }
       syncVoice()
     }
-    if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效（设置开关不算互动，不回一句）
+    if (muted || !shoutLoopOn) stopShoutLoop(false, '静音/关循环') // 静音/关循环立即生效（设置开关不算互动，不回一句）
     else syncVoice() // 循环跑着时开/关语音开关或静音，立即反映到麦克风
     const next = findSkin(c.skin)
     if (next !== skin) {
@@ -1037,7 +1045,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     poke,
     setBusy(busy) {
       busyInfo = busy
-      if (busy !== null) stopShoutLoop(true) // 新任务开跑：别再喊了；打断时妈妈回一句
+      if (busy !== null) stopShoutLoop(true, '新任务开跑') // 新任务开跑：别再喊了；打断时妈妈回一句
     },
     setMuted(m) {
       config.set({ muted: m })
