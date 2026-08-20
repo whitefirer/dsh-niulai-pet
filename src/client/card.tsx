@@ -160,13 +160,15 @@ function Switch(props: { on: boolean; disabled: boolean; label: string; onChange
         width: 36, height: 20, borderRadius: 10, border: 0, padding: 0, flex: 'none',
         position: 'relative', transition: 'background .15s',
         cursor: props.disabled ? 'default' : 'pointer',
-        background: props.on ? colors.brand : colors.trackOff,
+        background: props.on ? 'var(--dsw-alias-state-success-primary, #22c55e)' : colors.trackOff,
         opacity: props.disabled ? 0.4 : 1,
       }}
     >
       <span style={{
         position: 'absolute', top: 2, left: props.on ? 18 : 2, width: 16, height: 16,
         borderRadius: '50%', background: '#fff', transition: 'left .15s',
+        // 浅色主题下轨道近白，白圆球会融进去：描边+投影保证两主题都可见。
+        boxShadow: '0 0 0 1px rgba(0,0,0,.18), 0 1px 2px rgba(0,0,0,.25)',
       }} />
     </button>
   )
