@@ -32,7 +32,8 @@ const zh = {
   replyNiulai: '妈妈回应「牛来」',
   voiceControl: '语音停喊（喊「牛来」）',
   voiceUnsupported: '当前访问方式不支持麦克风（需 https 或 localhost 打开）',
-  voiceDenied: '麦克风授权被拒，语音停喊未开启',
+  voiceDenied: '麦克风授权被拒——若在 cenacle 内嵌窗口里，请换独立标签页打开 dsh 再开',
+  voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
   talkative: '气泡唠叨',
@@ -66,7 +67,8 @@ const en: Record<keyof typeof zh, string> = {
   replyNiulai: 'Mom answers "Niulai!"',
   voiceControl: 'Voice stop (shout "Niulai!")',
   voiceUnsupported: 'Microphone is unavailable on this origin (needs https or localhost)',
-  voiceDenied: 'Microphone permission denied; voice stop stays off',
+  voiceDenied: 'Microphone permission denied — if inside an embedded (cenacle) window, open dsh in its own tab and retry',
+  voiceNoMic: 'No microphone device detected; voice stop stays off',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
   talkative: 'Chatter bubbles',
@@ -309,7 +311,8 @@ function micSupported(): boolean {
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
-  const [voiceDenied, setVoiceDenied] = useState(false)
+  // 语音开关的失败原因分态：denied=授权被拒/iframe 策略；no-mic=无设备（NotFoundError）
+  const [voiceIssue, setVoiceIssue] = useState<'denied' | 'no-mic' | null>(null)
   const { t } = props
   const state = props.useNiulaiPet((s) => s)
   if (!state.ready) return null
@@ -320,22 +323,29 @@ export function NiulaiCard(props: NiulaiCardProps) {
   // 被拒则不落配置，受控开关自然弹回关位。试授权的流立即停掉，不常驻。
   const onVoice = (on: boolean): void => {
     if (!on) {
-      setVoiceDenied(false)
+      setVoiceIssue(null)
       props.set({ voiceControl: false })
       return
     }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(
       (stream) => {
         for (const track of stream.getTracks()) track.stop()
-        setVoiceDenied(false)
+        setVoiceIssue(null)
         props.set({ voiceControl: true })
       },
-      () => { setVoiceDenied(true) },
+      (err: unknown) => {
+        // NotFoundError/OverconstrainedError = 没有可用设备；NotAllowedError 才是
+        // 真的被拒（含 iframe 未放麦克风权限的策略拒绝）。分态提示，别一律说被拒。
+        const name = (err as DOMException | null)?.name
+        console.warn('[dsh-niulai-pet] mic request failed:', name, err)
+        setVoiceIssue(name === 'NotFoundError' || name === 'OverconstrainedError' ? 'no-mic' : 'denied')
+      },
     )
   }
   const voiceNote = !micOk ? t('voiceUnsupported')
-    : voiceDenied ? t('voiceDenied')
-      : cfg.voiceControl ? t('voiceGranted') : t('voiceIdle')
+    : voiceIssue === 'no-mic' ? t('voiceNoMic')
+      : voiceIssue === 'denied' ? t('voiceDenied')
+        : cfg.voiceControl ? t('voiceGranted') : t('voiceIdle')
   const skinName = SKINS.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
   const doneAction = cfg.actions[cfg.skin]?.done ?? 'signature'
   const pokeAction = cfg.actions[cfg.skin]?.poke ?? 'hops'

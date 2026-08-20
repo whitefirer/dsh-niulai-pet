@@ -67,7 +67,7 @@ export interface PetHandle {
   /** 主动戳一下（喊+绑定动作）。 */
   poke(): void
   /** AI 会话忙闲：忙时传入开始时间戳，闲时传 null（用于耗时气泡）。 */
-  setBusy(since: number | null): void
+  setBusy(busy: { since: number; label: string } | null): void
   /** 静音开关（试玩页角标等宿主 UI 用；与宠物菜单的「声音」同源）。 */
   setMuted(m: boolean): void
   isMuted(): boolean
@@ -218,7 +218,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let voiceControlOn = initCfg.voiceControl
   let mood: Mood = 'idle'
   let destroyed = false
-  let busySince: number | null = null
+  let busyInfo: { since: number; label: string } | null = null
 
   const cur = (): SkinDef => skin
   const skinIdle = (): string => skin.image
@@ -724,9 +724,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let chatterTimer = 0
   const chatter = (): void => {
     if (!destroyed && talkative && mood === 'idle') {
-      if (busySince !== null) {
-        const sec = Math.floor((Date.now() - busySince) / 1000)
-        if (sec >= 30) showBubble(`AI 已经跑了 ${fmtDur(sec)}…`, 2800)
+      if (busyInfo !== null) {
+        const sec = Math.floor((Date.now() - busyInfo.since) / 1000)
+        if (sec >= 30) showBubble(`「${busyInfo.label}」的AI已经跑了 ${fmtDur(sec)}…`, 2800)
       } else if (Math.random() < 0.6) {
         // 自定义语录非空时替换内置通用池；皮肤专属语录始终并入
         const custom = config.getSnapshot().quips
@@ -948,6 +948,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { config.set({ skin: nextSkin.id }) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '📢 喊一声', fn: () => { shout() } },
+      // 找不到打开设置页的宿主 API（rc.7 无此服务），气泡指路代替跳转
+      { kind: 'action', label: '⚙️ 设置', fn: () => { showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200) } },
       { kind: 'action', label: 'ℹ️ 关于', fn: () => { about.style.display = about.style.display === 'block' ? 'none' : 'block' } },
     ]
     for (const r of rows) {
@@ -1024,9 +1026,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   return {
     celebrate,
     poke,
-    setBusy(since) {
-      busySince = since
-      if (since !== null) stopShoutLoop(true) // 新任务开跑：别再喊了；打断时妈妈回一句
+    setBusy(busy) {
+      busyInfo = busy
+      if (busy !== null) stopShoutLoop(true) // 新任务开跑：别再喊了；打断时妈妈回一句
     },
     setMuted(m) {
       config.set({ muted: m })

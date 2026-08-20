@@ -33,6 +33,8 @@ interface Snapshot<T> {
 interface SessionRow {
   running?: boolean
   completed?: boolean
+  /** 人读标签：durable 标题，其次项目目录名，再退 session id。 */
+  displayTitle?: string
 }
 
 interface SessionsService {
@@ -42,8 +44,15 @@ interface SessionsService {
 interface WatchCallbacks {
   /** 有会话完成时触发。 */
   onDone: () => void
-  /** 忙闲沿变化：忙起传时间戳，闲落传 null。 */
-  onBusy: (since: number | null) => void
+  /** 忙闲沿变化：忙起传起始时间与会话标签，闲落传 null。 */
+  onBusy: (busy: { since: number; label: string } | null) => void
+}
+
+/** 标签裁到 12 字（durable 标题可能很长）。 */
+function shortLabel(title: string | undefined): string {
+  const t = (title ?? '').trim()
+  if (t === '') return 'AI'
+  return t.length > 12 ? `${t.slice(0, 12)}…` : t
 }
 
 function watchSessions(ctx: ClientCtx, cb: WatchCallbacks): void {
@@ -54,13 +63,25 @@ function watchSessions(ctx: ClientCtx, cb: WatchCallbacks): void {
       return
     }
     const prev = new Map<string, { running: boolean; completed: boolean }>()
+    /** 各在跑会话的起跑观测点（快照无 startedAt 字段，只能从本页观测到 running 起算）。 */
+    const runningSince = new Map<string, number>()
     const seed = sessions.list.getSnapshot()
     for (const [id, row] of Object.entries(seed.byId)) {
       prev.set(id, { running: row.running === true, completed: row.completed === true })
+      if (row.running === true) runningSince.set(id, Date.now())
     }
-    // 挂载时已有在跑会话：忙基线从页面加载算起
-    let wasAnyRunning = [...prev.values()].some((r) => r.running)
-    if (wasAnyRunning) cb.onBusy(Date.now())
+    /** 当前在跑里起跑最早的那个（气泡报它的标签与耗时）。 */
+    const currentBusy = (): { since: number; label: string } | null => {
+      const snap = sessions.list.getSnapshot()
+      let best: { since: number; label: string } | null = null
+      for (const [id, since] of runningSince) {
+        if (best !== null && since >= best.since) continue
+        best = { since, label: shortLabel(snap.byId[id]?.displayTitle) }
+      }
+      return best
+    }
+    let wasAnyRunning = runningSince.size > 0
+    if (wasAnyRunning) cb.onBusy(currentBusy())
     console.log(`[dsh-niulai-pet] ready, sessions watch on (baseline ${prev.size})`)
     const unsub = sessions.list.subscribe(() => {
       const snap = sessions.list.getSnapshot()
@@ -73,15 +94,21 @@ function watchSessions(ctx: ClientCtx, cb: WatchCallbacks): void {
             console.log(`[dsh-niulai-pet] task done detected: ${id.slice(0, 8)} (running ${before.running}->${now.running}, completed ${before.completed}->${now.completed})`)
             cb.onDone()
           }
+          if (!before.running && now.running) runningSince.set(id, Date.now())
         }
+        if (!now.running) runningSince.delete(id)
         prev.set(id, now)
       }
       for (const id of [...prev.keys()]) {
-        if (!(id in snap.byId)) prev.delete(id)
+        if (!(id in snap.byId)) {
+          prev.delete(id)
+          runningSince.delete(id)
+        }
       }
-      const anyRunning = [...prev.values()].some((r) => r.running)
-      if (anyRunning && !wasAnyRunning) cb.onBusy(Date.now())
-      else if (!anyRunning && wasAnyRunning) cb.onBusy(null)
+      const anyRunning = runningSince.size > 0
+      // 忙中每个快照都推一次：标签可能滞后投影进来（displayTitle 先空后有）
+      if (anyRunning) cb.onBusy(currentBusy())
+      else if (wasAnyRunning) cb.onBusy(null)
       wasAnyRunning = anyRunning
     })
     ctx.effect(() => unsub, 'niulai-pet sessions watch')

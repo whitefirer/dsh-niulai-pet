@@ -44,7 +44,7 @@ function mountSim(pet: PetHandle): void {
     btn.style.opacity = '.5'
     const dur = 4000 + Math.random() * 4000
     const t0 = Date.now()
-    pet.setBusy(t0)
+    pet.setBusy({ since: t0, label: '演示任务' })
     st.textContent = '任务运行中…'
     const tick = (): void => {
       const p = Math.min(1, (Date.now() - t0) / dur)
