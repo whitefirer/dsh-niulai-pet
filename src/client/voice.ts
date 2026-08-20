@@ -24,22 +24,21 @@ const MEL_FILTERS = 26
 export const MFCC_DIM = 13
 
 /**
- * 判中阈值：子序列 DTW 归一化距离（余弦代价 + 一阶 delta 特征 + 双端 CMN +
- * 非对角步惩罚 1.2）。由 test/voice-matcher.mts 标定（噪声样本每次生成
+ * 判中阈值：子序列 DTW 归一化距离（余弦代价 + Δ/ΔΔ 39 维特征 + 双端 CMN +
+ * 非对角步惩罚 1.2 + 连续 3 次过阈防抖）。由 test/voice-matcher.mts 标定（噪声样本每次生成
  * 模板/管线历次演进：初版（带噪模板、无谱减）正 ≤0.45 负 ≥0.71 阈值 0.57；
- * 2026-08-21 再演进：主模板换长切版（含衰减尾，reply_match.mp3）+ 带噪参考版
- * 取 min + 谱减 + 连续 2 次过阈防抖（短模板会被「妈妈」局部片段压线，踩过）：
- *   正样本（reply 本体 + ±8% 变调 / ±10% 变速 / 窄带）最高 ≈0.41
- *   负样本（mama1/mama2 喊声、mama.wav、静音、白噪）最低 ≈0.62
+ * 2026-08-21 再演进：主模板长切版（reply_match.mp3）+ 带噪参考版取 min + 谱减
+ * + ΔΔ 特征（负样本 min 0.582→0.646）+ 连续 3 次过阈防抖 + 用户自录模板：
+ *   正样本最高 ≈0.43 / 负样本最低 ≈0.66，阈值 0.54 双侧 margin ≈0.12
  *   （-25dB 全频段白噪正样本 0.64-0.75 判不中，已知限制：生产由浏览器
  *   noiseSuppression 前置清理，近场喊口令的 SNR 远高于合成极端样本）
  * 取 0.60 居中，双侧各 ≈0.09 间隔。宁偏紧：mama 喊声误判 = 循环自己停自己，
  * 是功能杀手；真人嗓音的召回率需真机麦克风验证后微调（上调警惕 mama 侧）。
  */
-export const VOICE_MATCH_THRESHOLD = 0.52
+export const VOICE_MATCH_THRESHOLD = 0.54
 
 /** 连续过阈次数才判命中（防抖）：滑窗每 50ms 评一次，2 次 ≈ 持续 100ms 都像才算。 */
-export const HIT_CONSECUTIVE = 2
+export const HIT_CONSECUTIVE = 3
 
 /** 能量门：帧 RMS（16bit 归一化）低于此值视为静音段，不做 DTW 评估。 */
 export const VAD_RMS_FLOOR = 0.008
@@ -303,11 +302,20 @@ export function appendDeltas(frames: number[][]): number[][] {
   })
 }
 
-/** 生产匹配分：拼 delta → 双端 CMN → 子序列 DTW（模板传入前应先 trimByEnergy）。 */
+/** 二阶 delta（加速度）特征：f + Δf + ΔΔf（13 → 39 维），语音识别经典增配。
+ *  实现：appendDeltas 两次后去掉中间重复的一份 Δf。 */
+export function appendDeltas2(frames: number[][]): number[][] {
+  const d2 = appendDeltas(appendDeltas(frames))
+  const dim = frames[0]?.length ?? 0
+  return d2.map((f) => [...f.slice(0, dim * 2), ...f.slice(dim * 3)])
+}
+
+/** 生产匹配分：拼 Δ+ΔΔ（39 维，负样本分离度明显更好：标定 neg min 0.582→0.646）
+ *  → 双端 CMN → 子序列 DTW（模板传入前应先 trimByEnergy）。 */
 export function matchScore(template: number[][], input: number[][], metric: FrameMetric = FRAME_METRIC): number {
   return subsequenceDtw(
-    cepstralMeanSub(appendDeltas(template)),
-    cepstralMeanSub(appendDeltas(input)),
+    cepstralMeanSub(appendDeltas2(template)),
+    cepstralMeanSub(appendDeltas2(input)),
     1,
     metric,
   )

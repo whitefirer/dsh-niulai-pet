@@ -319,7 +319,7 @@ export class ConfigStore {
       voiceControl: p.voiceControl === true,
       micDeviceId: typeof p.micDeviceId === 'string' ? p.micDeviceId : '',
       voiceThreshold: typeof p.voiceThreshold === 'number' && p.voiceThreshold >= 0.3 && p.voiceThreshold <= 0.85
-        ? p.voiceThreshold : 0.52,
+        ? p.voiceThreshold : 0.54,
       voiceTemplate: typeof p.voiceTemplate === 'string' && p.voiceTemplate.startsWith('data:audio/') && p.voiceTemplate.length < 300_000
         ? p.voiceTemplate : '',
     }

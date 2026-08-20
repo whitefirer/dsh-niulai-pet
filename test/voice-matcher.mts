@@ -12,6 +12,7 @@ import {
   FRAME_METRIC,
   LiveMatcher,
   VOICE_MATCH_THRESHOLD,
+  appendDeltas2,
   cepstralMeanSub,
   frameRmsSeries,
   matchScore,
@@ -125,6 +126,8 @@ const variants: Array<{ tag: string; fn(t: number[][], s: number[][]): number }>
   { tag: 'cos+CMN', fn: (t, s) => subsequenceDtw(cepstralMeanSub(t), cepstralMeanSub(s), 1, 'cos') },
   { tag: 'cos 无CMN', fn: (t, s) => subsequenceDtw(t, s, 1, 'cos') },
   { tag: 'euclid 无CMN', fn: (t, s) => subsequenceDtw(t, s, 1, 'euclid') },
+  { tag: 'cos+CMN+ΔΔ', fn: (t, s) => subsequenceDtw(cepstralMeanSub(appendDeltas2(t)), cepstralMeanSub(appendDeltas2(s)), 1, 'cos') },
+  { tag: 'cos+CMN 罚1.5', fn: (t, s) => subsequenceDtw(cepstralMeanSub(appendDeltas2(t)), cepstralMeanSub(appendDeltas2(s)), 1, 'cos', 1.5) },
 ]
 console.log('\n== 度量选型（正样本要整体低、负样本要整体高）==')
 for (const v of variants) {
