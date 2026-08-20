@@ -756,7 +756,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   }
 
   // ---- 语音停喊（voiceControl）：循环喊期间开麦识别「牛来」，命中即停循环 ----
-  // 模板就是妈妈的回应音 replySound（「牛来！」），识别命中回调 stopShoutLoop(true)
+  // 模板是「牛来！」的长切版+参考版；命中回调 stopShoutLoop(false)——用户亲自喊了
+  // 「牛来」就是扮演了妈妈，不再播录音回应（抢台词），互动打断才回一句
   // ——停止时妈妈回一句，闭环达成。不常驻：只在循环喊进行中开麦。
   let voice: VoiceStopHandle | null = null
   let voiceStarting = false
@@ -774,7 +775,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     const handle = startVoiceStop({
       templateSrcs: () => [REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
-      onMatch: () => { stopShoutLoop(true) },
+      onMatch: () => { stopShoutLoop(false) },
     })
     void handle.ready.then((ok) => {
       voiceStarting = false

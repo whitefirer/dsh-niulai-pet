@@ -400,7 +400,7 @@ export interface VoiceStopOptions {
   templateSrcs(): Array<string | undefined>
   /** 麦克风设备 id（空串 = 系统默认；设备不在时回落默认再试一次）。 */
   micDeviceId?(): string
-  /** 命中回调（pet 接线 stopShoutLoop(true)）。 */
+  /** 命中回调（pet 接线 stopShoutLoop(false)：用户已亲自喊「牛来」，不再播妈妈录音）。 */
   onMatch(): void
   onError?(err: unknown): void
 }

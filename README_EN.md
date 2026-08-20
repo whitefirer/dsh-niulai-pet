@@ -75,10 +75,12 @@ migrated on first load (values already changed on the settings page win); the po
 ## Voice stop (zero-model)
 
 While the pet is loop-shouting, shout **"Niulai!"** at the microphone and the loop
-stops — with mom answering "Niulai!" once as the loop breaks. Recognition is
-**zero-model** in-browser template matching (MFCC + subsequence DTW); the template is
-mom's reply line itself (`assets/reply.mp3` — her actual "Niulai!" from the movie).
-Nothing is downloaded, and audio never leaves the browser.
+stops. No recorded reply plays on a voice stop — you just played mom's part yourself
+(the reply line only answers interaction-based stops). Recognition is
+**zero-model** in-browser template matching (MFCC + subsequence DTW); the templates
+are two recordings of the same "Niulai!" line (`assets/reply_match.mp3` long cut +
+`assets/reply_ref.mp3` reference, min score). Nothing is downloaded, and audio never
+leaves the browser.
 
 - **Listens only when it should**: the mic opens only while the voice-stop switch is
   on *and* the shout loop is running; the moment the loop stops (match, poke, mute,
