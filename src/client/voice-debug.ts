@@ -19,7 +19,9 @@ export class VoiceDebugBus {
 
   getSnapshot = (): VoiceDebugState => this.state
 
-  subscribe(fn: () => void): () => void {
+  // 箭头函数字段（非原型方法）：卡片侧以 `bus.subscribe` 引用形式交给
+  // useSyncExternalStore，原型方法会丢 this 崩掉（踩过：card 整卡消失）
+  subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn)
     return () => { this.listeners.delete(fn) }
   }
