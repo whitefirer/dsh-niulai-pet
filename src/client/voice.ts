@@ -418,8 +418,8 @@ export interface VoiceStopHandle {
   stop(): void
 }
 
-/** dataurl → decodeAudioData → 线性重采样到 16k 单声道。 */
-async function decodeToPcm16k(dataurl: string): Promise<Float32Array> {
+/** dataurl → decodeAudioData → 线性重采样到 16k 单声道（卡片识别测试也用它解模板）。 */
+export async function decodeToPcm16k(dataurl: string): Promise<Float32Array> {
   const buf = await (await fetch(dataurl)).arrayBuffer()
   const AC = window.AudioContext
     ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext

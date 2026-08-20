@@ -14,7 +14,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
-import { SKINS } from './skins.js'
+import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
+import { decodeToPcm16k, frameRmsSeries, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy, VOICE_MATCH_THRESHOLD } from './voice.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
@@ -41,6 +42,8 @@ const zh = {
   micTestStop: '停止',
   micTestHint: '说句话，电平条应起伏',
   voiceDbgOff: '识别状态：未在听（循环喊进行时才开麦）',
+  micTestScore: '喊一声「牛来」：识别得分 {score}（越小越像；连续过阈即中）',
+  micTestHit: '识别到「牛来」！',
   voiceDbgOn: '识别状态：监听中，最近得分 {score}（越小越像「牛来」；连续过阈才停）',
   voiceDbgHit: '识别状态：刚才识别到「牛来」！',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
@@ -84,6 +87,8 @@ const en: Record<keyof typeof zh, string> = {
   micTestStop: 'Stop',
   micTestHint: 'Say something — the level bar should move',
   voiceDbgOff: 'Voice match: idle (mic opens only while loop-shouting)',
+  micTestScore: 'Shout "Niulai!": match score {score} (lower = closer)',
+  micTestHit: 'Heard "Niulai!"',
   voiceDbgOn: 'Voice match: listening, last score {score} (lower = closer to "Niulai")',
   voiceDbgHit: 'Voice match: heard "Niulai!" just now',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
@@ -356,62 +361,98 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
 }
 
 /** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
-function MicTest(props: { deviceId: string; labels: { test: string; stop: string; hint: string } }) {
+function MicTest(props: { deviceId: string; labels: { test: string; stop: string; hint: string; score: string; hit: string } }) {
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
+  const [score, setScore] = useState<number | null>(null)
+  const [hit, setHit] = useState(false)
   useEffect(() => {
     if (!testing) return
     let stop = false
-    let raf = 0
     let stream: MediaStream | null = null
     let actx: AudioContext | null = null
-    navigator.mediaDevices.getUserMedia({
-      audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
-    }).then((s) => {
+    let proc: ScriptProcessorNode | null = null
+    let lastLevelAt = 0
+    void (async () => {
+      let s: MediaStream
+      try {
+        s = await navigator.mediaDevices.getUserMedia({
+          audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
+        })
+      } catch {
+        setTesting(false)
+        return
+      }
       if (stop) { for (const t of s.getTracks()) t.stop(); return }
       stream = s
-      actx = new AudioContext()
-      const src = actx.createMediaStreamSource(s)
-      const analyser = actx.createAnalyser()
-      analyser.fftSize = 512
-      src.connect(analyser)
-      const buf = new Uint8Array(analyser.fftSize)
-      const tick = (): void => {
-        if (stop) return
-        analyser.getByteTimeDomainData(buf)
-        let acc = 0
-        for (const v of buf) { const d = (v - 128) / 128; acc += d * d }
-        setLevel(Math.min(1, Math.sqrt(acc / buf.length) * 4)) // RMS ×4 视觉增益
-        raf = requestAnimationFrame(tick)
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (AC === undefined) { setTesting(false); return }
+      actx = new AC()
+      const rate = actx.sampleRate
+      // 识别测试与生产同构：同一对模板、同一条 decode→mfcc→谱减→裁剪链
+      const templates: number[][][] = []
+      for (const tpl of [REPLY_MATCH, REPLY_REF]) {
+        try {
+          const pcm = await decodeToPcm16k(tpl)
+          templates.push(trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08))
+        } catch { /* 模板解码失败则只做电平 */ }
       }
-      tick()
-    }, () => { setTesting(false) })
+      const matcher = templates.length > 0
+        ? new LiveMatcher(templates, () => { setHit(true) }, VOICE_MATCH_THRESHOLD, (sc) => { setScore(sc) })
+        : null
+      const srcNode = actx.createMediaStreamSource(s)
+      proc = actx.createScriptProcessor(4096, 1, 1)
+      proc.onaudioprocess = (e) => {
+        if (stop) return
+        const ch = e.inputBuffer.getChannelData(0)
+        let acc = 0
+        for (let i = 0; i < ch.length; i++) acc += ch[i] * ch[i]
+        const now = Date.now()
+        if (now - lastLevelAt > 80) {
+          lastLevelAt = now
+          setLevel(Math.min(1, Math.sqrt(acc / ch.length) * 4)) // RMS ×4 视觉增益
+        }
+        try { matcher?.feed(resampleTo16k(ch, rate)) } catch { /* 单帧异常不挡 */ }
+      }
+      srcNode.connect(proc)
+      proc.connect(actx.destination) // 不写输出，只为让 ScriptProcessor 跑起来
+    })()
     return () => {
       stop = true
-      cancelAnimationFrame(raf)
+      if (proc !== null) { proc.onaudioprocess = null; proc.disconnect() }
       if (stream !== null) for (const t of stream.getTracks()) t.stop()
       if (actx !== null) void actx.close().catch(() => {})
       setLevel(0)
+      setScore(null)
+      setHit(false)
     }
   }, [testing, props.deviceId])
   return (
-    <div style={{ padding: '2px 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
-      <button
-        type="button"
-        style={{
-          font: 'inherit', fontSize: 12, padding: '3px 12px', borderRadius: 7, cursor: 'pointer',
-          border: `1px solid ${colors.border}`, background: 'none', color: colors.labelPrimary,
-        }}
-        onClick={() => { setTesting(!testing) }}
-      >{testing ? props.labels.stop : props.labels.test}</button>
+    <div style={{ padding: '2px 0 8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button"
+          style={{
+            font: 'inherit', fontSize: 12, padding: '3px 12px', borderRadius: 7, cursor: 'pointer',
+            border: `1px solid ${colors.border}`, background: 'none', color: colors.labelPrimary,
+          }}
+          onClick={() => { setTesting(!testing) }}
+        >{testing ? props.labels.stop : props.labels.test}</button>
+        {testing
+          ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1 }} title={props.labels.hint}>
+              <span style={{ flex: 1, maxWidth: 220, height: 8, borderRadius: 4, border: `1px solid ${colors.border}`, overflow: 'hidden', display: 'inline-block' }}>
+                <span style={{ display: 'block', height: '100%', width: `${Math.round(level * 100)}%`, background: 'var(--dsw-alias-state-success-primary, #22c55e)', transition: 'width .06s' }} />
+              </span>
+            </span>
+          )
+          : null}
+      </div>
       {testing
         ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1 }} title={props.labels.hint}>
-            <span style={{ flex: 1, maxWidth: 220, height: 8, borderRadius: 4, border: `1px solid ${colors.border}`, overflow: 'hidden', display: 'inline-block' }}>
-              <span style={{ display: 'block', height: '100%', width: `${Math.round(level * 100)}%`, background: 'var(--dsw-alias-state-success-primary, #22c55e)', transition: 'width .06s' }} />
-            </span>
-            <span style={{ fontSize: 11, color: colors.labelTertiary }}>{props.labels.hint}</span>
-          </span>
+          <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: hit ? 'var(--dsw-alias-state-success-primary, #22c55e)' : colors.labelTertiary }}>
+            {hit ? props.labels.hit : props.labels.score.replace('{score}', score === null ? '—' : score.toFixed(2))}
+          </div>
         )
         : null}
     </div>
@@ -540,7 +581,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
-                  <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint') }} />
+                  <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit') }} />
                 </>
               )
               : null}
