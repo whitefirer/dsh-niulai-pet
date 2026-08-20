@@ -320,6 +320,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
   }
 
+  /** 在播的喊声（语音/互动打断时当场掐断用）。 */
+  let playingAudio: HTMLAudioElement | null = null
+
   /** 放一声当前皮肤的叫声，返回时长 ms（0=无声/被静音）。 */
   const playVoice = (): number => {
     if (muted) return 0
@@ -329,6 +332,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       if (list.length === 0) return 0
       const src = list[Math.floor(Math.random() * list.length)]
       const audio = new Audio(src)
+      playingAudio = audio
+      audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
       void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
       const d = soundDur.get(src)
       return d !== undefined ? Math.round(d * 1000) + 150 : 2600
@@ -748,15 +753,34 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // （戳/拖/新任务开始/静音或开关关闭）；60 声兜底自停，防忘关叫一宿。
   let shoutLoopTimer = 0
   let shoutLoopLeft = 0
+  /** 庆祝代际：每次 fireCelebrate/打断 +1，旧连喊链读到代际不符即自杀
+   *  （bool 旗会被新一轮复位误伤——旧链会复活，用代际一了百了）。 */
+  let celebrateGen = 0
+
+  /** 当场掐断在播的喊声 + 合嘴（打断语义：被应声了还喊完长尾音就像没听见）。 */
+  const cutPlayingShout = (): void => {
+    celebrateGen++
+    if (playingAudio !== null) {
+      playingAudio.pause()
+      playingAudio = null
+    }
+    mouthShut() // 顺便清掉嘴型时间线（mouthTimers 一并清了）
+  }
+
   /** 停循环；withReply=true（互动/新任务打断）且循环确实在跑时，妈妈回一句。
-   *  reason 只为定位「谁停的」留日志（踩过「没互动就停」的排查坑）。 */
+   *  reason 只为定位「谁停的」留日志（踩过「没互动就停」的排查坑）。
+   *  互动/语音打断时顺带点杀在播喊声与未放完的连喊链（此前只停循环不停链，
+   *  shoutCount>1 时「识别到了还一直叫」就是这么来的）。 */
   const stopShoutLoop = (withReply = false, reason = '?'): boolean => {
     const wasActive = shoutLoopTimer !== 0 || shoutLoopLeft > 0
     window.clearTimeout(shoutLoopTimer)
     shoutLoopTimer = 0
     shoutLoopLeft = 0
     if (wasActive) console.log(`[dsh-niulai-pet] shout loop stop: ${reason}`)
-    if (withReply && wasActive) playReply()
+    if (withReply && wasActive) {
+      cutPlayingShout()
+      playReply()
+    }
     syncVoice() // 循环停 → 立即关麦停流
     return wasActive
   }
@@ -790,6 +814,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       threshold: () => voiceThreshold,
       onMatch: () => {
         voiceDebug?.publish({ matchedAt: Date.now(), listening: false })
+        cutPlayingShout() // 用户已应声：当场掐断在播的「妈妈」和剩余连喊
         stopShoutLoop(false, '语音命中')
       },
       // 报分节流：评估每 50ms 一次，卡片状态行 300ms 一刷足够
@@ -834,10 +859,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   const fireCelebrate = (): void => {
     if (destroyed) return
+    celebrateGen++ // 新一轮庆祝：旧连喊链（若有）代际不符自然死
     if (shoutOnDone && !muted) {
       // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
+      const gen = celebrateGen
       const chain = (n: number): void => {
-        if (destroyed) return
+        if (destroyed || gen !== celebrateGen) return
         if (n <= 0) {
           // 接龙放完：非循环模式时妈妈回一句；循环模式的回应在打断时给
           if (!shoutLoopOn) playReply()
