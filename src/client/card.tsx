@@ -15,7 +15,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
-import { decodeToPcm16k, frameRmsSeries, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy, VOICE_MATCH_THRESHOLD } from './voice.js'
+import { decodeToPcm16k, frameRmsSeries, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
@@ -44,6 +44,8 @@ const zh = {
   voiceDbgOff: '识别状态：未在听（循环喊进行时才开麦）',
   micTestScore: '喊一声「牛来」：识别得分 {score}（越小越像；连续过阈即中）',
   micTestHit: '识别到「牛来」！',
+  voiceThreshold: '识别阈值',
+  voiceThresholdHint: '喊「牛来」和别的词各试几次，阈值取两组得分之间（越小越严）',
   voiceDbgOn: '识别状态：监听中，最近得分 {score}（越小越像「牛来」；连续过阈才停）',
   voiceDbgHit: '识别状态：刚才识别到「牛来」！',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
@@ -89,6 +91,8 @@ const en: Record<keyof typeof zh, string> = {
   voiceDbgOff: 'Voice match: idle (mic opens only while loop-shouting)',
   micTestScore: 'Shout "Niulai!": match score {score} (lower = closer)',
   micTestHit: 'Heard "Niulai!"',
+  voiceThreshold: 'Match threshold',
+  voiceThresholdHint: 'Test both "Niulai" and other words; pick a threshold between the two score ranges (lower = stricter)',
   voiceDbgOn: 'Voice match: listening, last score {score} (lower = closer to "Niulai")',
   voiceDbgHit: 'Voice match: heard "Niulai!" just now',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
@@ -266,22 +270,25 @@ function Row(props: { label: string; children: React.ReactNode }) {
   )
 }
 
-/** 整数输入（0-120 这类范围大的，步进器要点几十下不现实）：本地草稿 + blur/Enter 提交并夹取。 */
-function NumberField(props: { value: number; min: number; max: number; disabled: boolean; label: string; onCommit(n: number): void }) {
-  const [draft, setDraft] = useState(String(props.value))
+/** 数值输入（范围大的步进器要点几十下不现实）：本地草稿 + blur/Enter 提交并夹取。float=true 时按两位小数。 */
+function NumberField(props: { value: number; min: number; max: number; disabled: boolean; label: string; float?: boolean; onCommit(n: number): void }) {
+  const shown = (v: number): string => (props.float === true ? v.toFixed(2) : String(v))
+  const [draft, setDraft] = useState(shown(props.value))
   const [focused, setFocused] = useState(false)
-  if (!focused && draft !== String(props.value)) setDraft(String(props.value))
+  if (!focused && draft !== shown(props.value)) setDraft(shown(props.value))
   const commit = (): void => {
-    const n = Math.round(Number(draft))
-    if (!Number.isFinite(n)) { setDraft(String(props.value)); return }
-    props.onCommit(Math.min(props.max, Math.max(props.min, n)))
+    let n = Number(draft)
+    if (!Number.isFinite(n)) { setDraft(shown(props.value)); return }
+    n = Math.min(props.max, Math.max(props.min, n))
+    if (props.float !== true) n = Math.round(n)
+    props.onCommit(n)
   }
   return (
     <input
       type="number"
       min={props.min}
       max={props.max}
-      step={1}
+      step={props.float === true ? 0.01 : 1}
       aria-label={props.label}
       style={{
         width: 72, font: 'inherit', fontSize: 13, padding: '4px 10px', borderRadius: 8,
@@ -361,7 +368,7 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
 }
 
 /** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
-function MicTest(props: { deviceId: string; labels: { test: string; stop: string; hint: string; score: string; hit: string } }) {
+function MicTest(props: { deviceId: string; threshold: number; labels: { test: string; stop: string; hint: string; score: string; hit: string } }) {
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
   const [score, setScore] = useState<number | null>(null)
@@ -398,7 +405,7 @@ function MicTest(props: { deviceId: string; labels: { test: string; stop: string
         } catch { /* 模板解码失败则只做电平 */ }
       }
       const matcher = templates.length > 0
-        ? new LiveMatcher(templates, () => { setHit(true) }, VOICE_MATCH_THRESHOLD, (sc) => { setScore(sc) })
+        ? new LiveMatcher(templates, () => { setHit(true) }, props.threshold, (sc) => { setScore(sc) })
         : null
       const srcNode = actx.createMediaStreamSource(s)
       proc = actx.createScriptProcessor(4096, 1, 1)
@@ -426,7 +433,7 @@ function MicTest(props: { deviceId: string; labels: { test: string; stop: string
       setScore(null)
       setHit(false)
     }
-  }, [testing, props.deviceId])
+  }, [testing, props.deviceId, props.threshold])
   return (
     <div style={{ padding: '2px 0 8px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -581,7 +588,12 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
-                  <MicTest deviceId={cfg.micDeviceId} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit') }} />
+                  <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit') }} />
+                  <Row label={t('voiceThreshold')}>
+                    <NumberField value={cfg.voiceThreshold} min={0.3} max={0.85} float disabled={disabled} label={t('voiceThreshold')}
+                      onCommit={(n) => { props.set({ voiceThreshold: n }) }} />
+                  </Row>
+                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('voiceThresholdHint')}</div>
                 </>
               )
               : null}

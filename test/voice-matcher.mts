@@ -17,6 +17,7 @@ import {
   matchScore,
   mfccFrames,
   subsequenceDtw,
+  resampleTo16k,
   trimByEnergy,
   type FrameMetric,
 } from '../src/client/voice.ts'
@@ -76,6 +77,16 @@ const corpus: Array<{ name: string; path: string; positive: boolean; xfail?: boo
   { name: '静音', path: synth('silence.wav', 'anullsrc=r=16000:cl=mono', 2), positive: false },
   { name: '白噪', path: synth('whitenoise.wav', 'anoisesrc=color=white:amplitude=0.5', 2), positive: false },
 ]
+// 真实语音/歌声负样本（别的词别的嗓音，绝不能误判为「牛来」）
+const SRC2 = '/tmp/niulai/src2.mp4'
+if (existsSync(SRC2)) {
+  corpus.push(
+    { name: '语音段A(60s)', path: wav16k('speech-a.wav', SRC2, 'atrim=60:2.2'), positive: false },
+    { name: '语音段B(130s)', path: wav16k('speech-b.wav', SRC2, 'atrim=130:2.2'), positive: false },
+  )
+}
+const MV = '/tmp/niulai/BV13DbU6eEHe.mp4'
+if (existsSync(MV)) corpus.push({ name: 'MV歌声(100s)', path: wav16k('song-a.wav', MV, 'atrim=100:2.2'), positive: false })
 // 额外负样本：早期对比测试留下的 mama.wav（在则测，不在不挡）
 const MAMA_WAV = '/tmp/niulai-sound/mama.wav'
 if (existsSync(MAMA_WAV)) corpus.push({ name: 'mama.wav', path: wav16k('mama-ext.wav', MAMA_WAV), positive: false })
@@ -165,6 +176,30 @@ for (const c of pcms) {
     check(`${tag} ${c.name.padEnd(18)} 命中 (lastScore=${m.lastScore.toFixed(3)})`, hit)
   } else {
     check(`${tag} ${c.name.padEnd(18)} 不命中 (lastScore=${Number.isFinite(m.lastScore) ? m.lastScore.toFixed(3) : '—'})`, !hit)
+  }
+}
+
+// ---- live 路径模拟：48k 上采样后走生产 resampleTo16k（线性抽稀），
+// 检验浏览器实采（48k 设备）下的判别力是否压平 ----
+console.log('\n== live 路径模拟（48k → resampleTo16k 线性抽稀）==')
+function liveify(path: string): Float32Array {
+  const dst = path.replace(/\.wav$/, '-48k.wav')
+  ff(['-i', path, '-ac', '1', '-ar', '48000', '-f', 'wav', dst])
+  return resampleTo16k(readWav(dst), 48000)
+}
+for (const c of pcms) {
+  const live = liveify(c.path)
+  let hit = false
+  const m = new LiveMatcher(templates, () => { hit = true })
+  for (let pos = 0; pos < live.length; pos += 1600) m.feed(live.slice(pos, pos + 1600))
+  const sc = Number.isFinite(m.lastScore) ? m.lastScore.toFixed(3) : '—'
+  const tag = c.xfail === true ? '~~' : (c.positive ? '正' : '负')
+  if (c.xfail === true) {
+    console.log(`~~   ${tag} ${c.name.padEnd(18)} lastScore=${sc}（已知限制，不参与断言）`)
+  } else if (c.positive) {
+    check(`${tag} ${c.name.padEnd(18)} live 命中 (lastScore=${sc})`, hit)
+  } else {
+    check(`${tag} ${c.name.padEnd(18)} live 不命中 (lastScore=${sc})`, !hit)
   }
 }
 

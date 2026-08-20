@@ -404,6 +404,8 @@ export interface VoiceStopOptions {
   templateSrcs(): Array<string | undefined>
   /** 麦克风设备 id（空串 = 系统默认；设备不在时回落默认再试一次）。 */
   micDeviceId?(): string
+  /** 识别阈值（默认 VOICE_MATCH_THRESHOLD；用户可配）。 */
+  threshold?(): number
   /** 命中回调（pet 接线 stopShoutLoop(false)：用户已亲自喊「牛来」，不再播妈妈录音）。 */
   onMatch(): void
   /** 每次评估报分（调试用：卡片状态行显示「识别到什么程度了」）。 */
@@ -530,7 +532,7 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       ctx = new AC()
       if (ctx.state === 'suspended') void ctx.resume()
       const rate = ctx.sampleRate
-      const matcher = new LiveMatcher(templates, () => { opts.onMatch() }, VOICE_MATCH_THRESHOLD, (score) => { opts.onScore?.(score) })
+      const matcher = new LiveMatcher(templates, () => { opts.onMatch() }, opts.threshold?.() ?? VOICE_MATCH_THRESHOLD, (score) => { opts.onScore?.(score) })
       const source = ctx.createMediaStreamSource(stream)
       proc = ctx.createScriptProcessor(4096, 1, 1)
       proc.onaudioprocess = (e) => {

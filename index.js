@@ -63,6 +63,9 @@ export const Config = z.object({
   voiceControl: z.boolean().default(false),
   /** 麦克风设备 id（空 = 系统默认；deviceId 按浏览器源发放，换浏览器缺此设备自动回落默认）。 */
   micDeviceId: z.string().default(''),
+  /** 识别阈值（越小越严）：默认 0.52；真机「喊牛来/喊别的得分差不多」时，
+   *  用卡片里的测试看两边得分，把阈值调到两组得分之间。 */
+  voiceThreshold: z.number().min(0.3).max(0.85).default(0.52),
 })
 
 /**

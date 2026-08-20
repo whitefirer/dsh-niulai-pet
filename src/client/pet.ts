@@ -218,6 +218,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let replyOn = initCfg.replyNiulai
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
+  let voiceThreshold = initCfg.voiceThreshold
   let mood: Mood = 'idle'
   let destroyed = false
   let busyInfo: { since: number; label: string } | null = null
@@ -784,6 +785,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const handle = startVoiceStop({
       templateSrcs: () => [REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
+      threshold: () => voiceThreshold,
       onMatch: () => {
         voiceDebug?.publish({ matchedAt: Date.now(), listening: false })
         stopShoutLoop(false, '语音命中')
@@ -1039,9 +1041,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
     voiceControlOn = c.voiceControl
-    if (c.micDeviceId !== micDeviceId) {
-      // 换麦克风：正在听就重启监听用上新设备
+    if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold) {
+      // 换麦克风/调阈值：正在听就重启监听用上新值
       micDeviceId = c.micDeviceId
+      voiceThreshold = c.voiceThreshold
       if (voice !== null) { voice.stop(); voice = null }
       syncVoice()
     }
