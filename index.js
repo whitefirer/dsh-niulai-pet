@@ -43,8 +43,8 @@ export const Config = z.object({
   muted: z.boolean().default(false),
   /** 任务完成时喊（默认开）。 */
   shoutOnDone: z.boolean().default(true),
-  /** 完成时连喊几声（1-3，默认 1）。 */
-  shoutCount: z.number().step(1).min(1).max(3).default(1),
+  /** 完成时连喊几声（1-10，默认 1；循环模式下此键无意义）。 */
+  shoutCount: z.number().step(1).min(1).max(10).default(1),
   /** 气泡唠叨（默认开）。 */
   talkative: z.boolean().default(true),
   /** 当前皮肤。 */

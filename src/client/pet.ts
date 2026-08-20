@@ -861,29 +861,29 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (destroyed) return
     celebrateGen++ // 新一轮庆祝：旧连喊链（若有）代际不符自然死
     if (shoutOnDone && !muted) {
-      // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
-      const gen = celebrateGen
-      const chain = (n: number): void => {
-        if (destroyed || gen !== celebrateGen) return
-        if (n <= 0) {
-          // 接龙放完：非循环模式时妈妈回一句；循环模式的回应在打断时给
-          if (!shoutLoopOn) playReply()
-          return
-        }
-        const ms = playVoice()
-        if (ms <= 0) return
-        const next = (): void => chain(n - 1)
-        if (cur().imageShout === undefined) window.setTimeout(next, ms)
-        else mouthShout(ms, next)
-      }
-      chain(shoutCount)
-      const text = cur().shoutBubble
-      showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
-      // 接龙放完再进入循环（留一口气）
       if (shoutLoopOn) {
+        // 循环模式：连喊几声对循环无意义，跳过接龙直接布防循环（第一声 0.6s 后）
         shoutLoopLeft = 60
-        shoutLoopTimer = window.setTimeout(shoutLoopTick, shoutCount * 2600 + 1600)
+        shoutLoopTimer = window.setTimeout(shoutLoopTick, 600)
         syncVoice() // 循环喊开始 → 语音停喊开听（开关开着且环境支持时）
+      } else {
+        // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
+        const gen = celebrateGen
+        const chain = (n: number): void => {
+          if (destroyed || gen !== celebrateGen) return
+          if (n <= 0) {
+            playReply() // 接龙放完妈妈回一句
+            return
+          }
+          const ms = playVoice()
+          if (ms <= 0) return
+          const next = (): void => chain(n - 1)
+          if (cur().imageShout === undefined) window.setTimeout(next, ms)
+          else mouthShout(ms, next)
+        }
+        chain(shoutCount)
+        const text = cur().shoutBubble
+        showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
       }
     }
     runAction(doneAction()) // 安静模式也照做动作，只是没声没气泡

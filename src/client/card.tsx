@@ -657,7 +657,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <Switch on={cfg.shoutOnDone} disabled={disabled} label={t('shoutOnDone')} onChange={(on) => { props.set({ shoutOnDone: on }) }} />
             </Row>
             <Row label={t('shoutCount')}>
-              <Stepper value={cfg.shoutCount} min={1} max={3} disabled={disabled} label={t('shoutCount')} onChange={(n) => { props.set({ shoutCount: n }) }} />
+              <Stepper value={cfg.shoutCount} min={1} max={10} disabled={disabled} label={t('shoutCount')} onChange={(n) => { props.set({ shoutCount: n }) }} />
             </Row>
             <Row label={t('doneDelay')}>
               <NumberField value={cfg.doneDelaySec} min={0} max={120} disabled={disabled} label={t('doneDelay')}
