@@ -17,6 +17,7 @@
  */
 
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
+import { startVoiceStop, type VoiceStopHandle } from './voice.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
 export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
@@ -213,6 +214,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let doneDelaySec = initCfg.doneDelaySec
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
+  let voiceControlOn = initCfg.voiceControl
   let mood: Mood = 'idle'
   let destroyed = false
   let busySince: number | null = null
@@ -747,7 +749,40 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     shoutLoopTimer = 0
     shoutLoopLeft = 0
     if (withReply && wasActive) playReply()
+    syncVoice() // 循环停 → 立即关麦停流
   }
+
+  // ---- 语音停喊（voiceControl）：循环喊期间开麦识别「牛来」，命中即停循环 ----
+  // 模板就是妈妈的回应音 replySound（「牛来！」），识别命中回调 stopShoutLoop(true)
+  // ——停止时妈妈回一句，闭环达成。不常驻：只在循环喊进行中开麦。
+  let voice: VoiceStopHandle | null = null
+  let voiceStarting = false
+  /** 开听条件：开关开 + 非静音 + 循环喊在跑 + 当前皮肤有回应音（无模板无法识别）。 */
+  const voiceWanted = (): boolean =>
+    voiceControlOn && !muted && !destroyed && cur().replySound !== undefined
+    && (shoutLoopTimer !== 0 || shoutLoopLeft > 0)
+  const syncVoice = (): void => {
+    if (!voiceWanted()) {
+      if (voice !== null) { voice.stop(); voice = null }
+      return
+    }
+    if (voice !== null || voiceStarting) return
+    voiceStarting = true
+    const handle = startVoiceStop({
+      templateSrc: () => cur().replySound,
+      onMatch: () => { stopShoutLoop(true) },
+    })
+    void handle.ready.then((ok) => {
+      voiceStarting = false
+      if (!ok) return
+      if (voiceWanted()) {
+        voice = handle
+      } else {
+        handle.stop() // 就绪期间循环已被互动停掉：立即关麦，不留尾巴
+      }
+    })
+  }
+
   const shoutLoopTick = (): void => {
     shoutLoopTimer = 0
     if (destroyed || !shoutLoopOn || muted || shoutLoopLeft <= 0 || mood === 'drag' || mood === 'fly') {
@@ -786,6 +821,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       if (shoutLoopOn) {
         shoutLoopLeft = 60
         shoutLoopTimer = window.setTimeout(shoutLoopTick, shoutCount * 2600 + 1600)
+        syncVoice() // 循环喊开始 → 语音停喊开听（开关开着且环境支持时）
       }
     }
     runAction(doneAction()) // 安静模式也照做动作，只是没声没气泡
@@ -968,7 +1004,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     doneDelaySec = c.doneDelaySec
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
+    voiceControlOn = c.voiceControl
     if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效（设置开关不算互动，不回一句）
+    else syncVoice() // 循环跑着时开/关语音开关或静音，立即反映到麦克风
     const next = findSkin(c.skin)
     if (next !== skin) {
       skin = next
@@ -998,6 +1036,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       destroyed = true
       unsubConfig()
       keeper.disconnect()
+      if (voice !== null) { voice.stop(); voice = null }
       window.clearTimeout(behaveTimer)
       window.clearTimeout(chatterTimer)
       window.clearTimeout(shoutLoopTimer)

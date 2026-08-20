@@ -30,6 +30,11 @@ const zh = {
   doneDelay: '完成延迟（秒）',
   shoutLoop: '循环喊到互动停止',
   replyNiulai: '妈妈回应「牛来」',
+  voiceControl: '语音停喊（喊「牛来」）',
+  voiceUnsupported: '当前访问方式不支持麦克风（需 https 或 localhost 打开）',
+  voiceDenied: '麦克风授权被拒，语音停喊未开启',
+  voiceGranted: '状态：已授权（仅循环喊期间开麦）',
+  voiceIdle: '状态：未授权',
   talkative: '气泡唠叨',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
@@ -59,6 +64,11 @@ const en: Record<keyof typeof zh, string> = {
   doneDelay: 'Done delay (s)',
   shoutLoop: 'Loop shout until touched',
   replyNiulai: 'Mom answers "Niulai!"',
+  voiceControl: 'Voice stop (shout "Niulai!")',
+  voiceUnsupported: 'Microphone is unavailable on this origin (needs https or localhost)',
+  voiceDenied: 'Microphone permission denied; voice stop stays off',
+  voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
+  voiceIdle: 'Status: not granted',
   talkative: 'Chatter bubbles',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
@@ -290,14 +300,42 @@ function QuipsField(props: { value: string[]; disabled: boolean; placeholder: st
   )
 }
 
+/** 麦克风可用性：非安全上下文（局域网 http）下 getUserMedia 直接不存在，只能禁用说明。 */
+function micSupported(): boolean {
+  return typeof window !== 'undefined' && window.isSecureContext
+    && typeof navigator.mediaDevices?.getUserMedia === 'function'
+}
+
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
+  const [voiceDenied, setVoiceDenied] = useState(false)
   const { t } = props
   const state = props.useNiulaiPet((s) => s)
   if (!state.ready) return null
   const { cfg, writable } = state
   const disabled = !writable
+  const micOk = micSupported()
+  // 语音停喊开关：打开前先真试一次授权（浏览器原生授权框），拿到流才写入 true；
+  // 被拒则不落配置，受控开关自然弹回关位。试授权的流立即停掉，不常驻。
+  const onVoice = (on: boolean): void => {
+    if (!on) {
+      setVoiceDenied(false)
+      props.set({ voiceControl: false })
+      return
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(
+      (stream) => {
+        for (const track of stream.getTracks()) track.stop()
+        setVoiceDenied(false)
+        props.set({ voiceControl: true })
+      },
+      () => { setVoiceDenied(true) },
+    )
+  }
+  const voiceNote = !micOk ? t('voiceUnsupported')
+    : voiceDenied ? t('voiceDenied')
+      : cfg.voiceControl ? t('voiceGranted') : t('voiceIdle')
   const skinName = SKINS.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
   const doneAction = cfg.actions[cfg.skin]?.done ?? 'signature'
   const pokeAction = cfg.actions[cfg.skin]?.poke ?? 'hops'
@@ -349,6 +387,10 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('replyNiulai')}>
               <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
             </Row>
+            <Row label={t('voiceControl')}>
+              <Switch on={cfg.voiceControl} disabled={disabled || !micOk} label={t('voiceControl')} onChange={onVoice} />
+            </Row>
+            <div role="status" style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{voiceNote}</div>
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
             </Row>

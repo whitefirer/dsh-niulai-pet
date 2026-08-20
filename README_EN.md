@@ -60,7 +60,8 @@ degrades to manual interaction only.
 
 Since rc.7, Settings → Plugins → Plugin configuration hosts the "Niulai Pet" card:
 sound / shout-on-done / shout repeats (1–3) / done delay (0–120s) / loop-shout-until-
-touched / mom's "Niulai!" reply / chatter bubbles / chatter lines (one per line;
+touched / mom's "Niulai!" reply / voice stop (shout "Niulai!" to break the loop —
+see below) / chatter bubbles / chatter lines (one per line;
 non-empty replaces the built-in shared pool) / skin picker / done & poke action
 dropdowns (editing the current skin's bindings). The shout loop stops on poke, drag,
 a new session start, mute, or flipping the switch off, with a 60-shout safety cap;
@@ -70,6 +71,36 @@ the other reflects it immediately. Persistence is owned by the dsh host
 (`~/.dsh/settings.yaml`, shared across browsers). Legacy localStorage preferences are
 migrated on first load (values already changed on the settings page win); the position
 `x` stays per-device in localStorage and is not a setting.
+
+## Voice stop (zero-model)
+
+While the pet is loop-shouting, shout **"Niulai!"** at the microphone and the loop
+stops — with mom answering "Niulai!" once as the loop breaks. Recognition is
+**zero-model** in-browser template matching (MFCC + subsequence DTW); the template is
+mom's reply line itself (`assets/reply.mp3` — her actual "Niulai!" from the movie).
+Nothing is downloaded, and audio never leaves the browser.
+
+- **Listens only when it should**: the mic opens only while the voice-stop switch is
+  on *and* the shout loop is running; the moment the loop stops (match, poke, mute,
+  new task) the mic track is stopped. No always-on listening.
+- **Environment limit**: `getUserMedia` requires a secure context (https or
+  localhost). Over LAN `http://192.168.x.x` the API simply doesn't exist, so the
+  card shows the switch disabled with an explanation.
+- **Permission flow**: flipping the switch on performs a real mic acquisition (the
+  browser's native permission prompt); the setting is only written after a grant.
+  On denial the switch flips back off with a notice. A status line shows
+  "not granted / granted / unavailable".
+- Discrimination is calibrated offline in `test/voice-matcher.mts`: positives
+  (the template plus pitch/tempo/noise perturbations) score ≈0.45 at most, below the
+  0.57 threshold; negatives (the pet's own "mama" shouts, silence, white noise)
+  score ≈0.71 at least. The bias is
+  deliberately tight — mishearing the pet's own "mama" as "Niulai" would stop the
+  loop by itself. Recall on real voices depends on the mic and distance and may need
+  on-device tuning.
+
+The demo page has the same switch as a 🎤 corner button (localStorage-backed); pair
+it with the shout loop, e.g. preset
+`localStorage['dsh-niulai-pet:state-v1']='{"shoutLoop":true}'` and reload.
 
 ## Install
 

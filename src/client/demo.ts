@@ -10,6 +10,8 @@
 
 import { SKINS } from './skins.js'
 import { mountPet, type PetHandle } from './pet.js'
+import { ConfigStore } from './config.js'
+import { voiceCapable } from './voice.js'
 
 /** 模拟 agent 任务卡片：跑任务 → 忙（耗时气泡）→ 完成 → 庆祝喊妈。 */
 function mountSim(pet: PetHandle): void {
@@ -88,10 +90,53 @@ function mountMuteBtn(pet: PetHandle): void {
   document.body.appendChild(btn)
 }
 
+/** 语音停喊角标（🎤）：demo 没有设置卡片，开关落 localStorage 后端。
+ *  开前真试一次授权（原生授权框），被拒不落配置；环境不支持（非 https/localhost）禁用。 */
+function mountVoiceBtn(store: ConfigStore): void {
+  const btn = document.createElement('button')
+  btn.style.cssText = [
+    'position:fixed', 'right:64px', 'top:16px', 'z-index:99998',
+    'width:40px', 'height:40px', 'border-radius:10px',
+    'border:1px solid rgba(255,255,255,.12)', 'background:rgba(20,24,45,.92)',
+    'font-size:19px', 'cursor:pointer', 'backdrop-filter:blur(6px)',
+  ].join(';')
+  btn.textContent = '🎤'
+  const capable = voiceCapable()
+  const sync = (): void => {
+    const on = store.getSnapshot().voiceControl
+    btn.style.opacity = !capable ? '.3' : on ? '1' : '.5'
+    btn.title = !capable
+      ? '当前访问方式不支持麦克风（需 https 或 localhost 打开）'
+      : on
+        ? '语音停喊开（循环喊时喊一声「牛来」即停），点我关'
+        : '语音停喊关，点我开（会先弹麦克风授权）'
+    btn.setAttribute('aria-label', btn.title)
+  }
+  btn.addEventListener('click', () => {
+    if (!capable) return
+    if (store.getSnapshot().voiceControl) {
+      store.set({ voiceControl: false })
+      return
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(
+      (stream) => {
+        for (const track of stream.getTracks()) track.stop()
+        store.set({ voiceControl: true })
+      },
+      () => { console.warn('[niulai-demo] 麦克风授权被拒，语音停喊未开启') },
+    )
+  })
+  sync()
+  store.subscribe(sync)
+  document.body.appendChild(btn)
+}
+
 const start = (): void => {
-  const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' })
+  const store = new ConfigStore({ skinIds: SKINS.map((s) => s.id), defaultSkin: 'niulai' })
+  const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' }, store)
   mountSim(pet)
   mountMuteBtn(pet)
+  mountVoiceBtn(store)
   // 验证钩子（playwright 冒烟用）
   ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
 }

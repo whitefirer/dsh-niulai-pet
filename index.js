@@ -59,6 +59,8 @@ export const Config = z.object({
   shoutLoop: z.boolean().default(false),
   /** 喊完（或循环喊被互动打断）时妈妈回一句「牛来！」（默认开）。 */
   replyNiulai: z.boolean().default(true),
+  /** 语音停喊：循环喊期间开麦，喊「牛来」即停（需 https/localhost + 麦克风授权）。 */
+  voiceControl: z.boolean().default(false),
 })
 
 /**
