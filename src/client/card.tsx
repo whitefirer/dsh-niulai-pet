@@ -29,6 +29,7 @@ const zh = {
   shoutCount: '完成连喊',
   doneDelay: '完成延迟（秒）',
   shoutLoop: '循环喊到互动停止',
+  replyNiulai: '妈妈回应「牛来」',
   talkative: '气泡唠叨',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
@@ -57,6 +58,7 @@ const en: Record<keyof typeof zh, string> = {
   shoutCount: 'Shout repeats',
   doneDelay: 'Done delay (s)',
   shoutLoop: 'Loop shout until touched',
+  replyNiulai: 'Mom answers "Niulai!"',
   talkative: 'Chatter bubbles',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
@@ -343,6 +345,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('shoutLoop')}>
               <Switch on={cfg.shoutLoop} disabled={disabled} label={t('shoutLoop')} onChange={(on) => { props.set({ shoutLoop: on }) }} />
+            </Row>
+            <Row label={t('replyNiulai')}>
+              <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
             </Row>
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />

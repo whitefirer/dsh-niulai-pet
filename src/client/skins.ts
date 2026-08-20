@@ -26,6 +26,7 @@ import whaleBlink from '../../assets/whale_blink.png'
 import whaleSpout from '../../assets/whale_spout.png'
 import mama1 from '../../assets/mama1.mp3'
 import mama2 from '../../assets/mama2.mp3'
+import replyNiulai from '../../assets/reply.mp3'
 import petOrig from '../../assets/pet_orig.png'
 import petOrigShout from '../../assets/pet_orig_shout.png'
 import petOrigBlink from '../../assets/pet_orig_blink.png'
@@ -43,6 +44,7 @@ export const SKINS: SkinDef[] = [
     imageFlyShout: petFlyShout,
     voice: 'mama',
     sounds: [mama1, mama2],
+    replySound: replyNiulai,
     signature: 'hops',
     shoutBubble: '妈~~妈~~',
     quips: ['妈——！', '我会飞你信不信'],
@@ -55,6 +57,7 @@ export const SKINS: SkinDef[] = [
     imageBlink: petOrigBlink,
     voice: 'mama',
     sounds: [mama1, mama2],
+    replySound: replyNiulai,
     signature: 'hops',
     shoutBubble: '妈~~妈~~',
     quips: ['妈——！', '我还没长角呢'],
@@ -69,6 +72,7 @@ export const SKINS: SkinDef[] = [
     imageFlyShout: petYoungFlyShout,
     voice: 'mama',
     sounds: [mama1, mama2],
+    replySound: replyNiulai,
     signature: 'roll',
     shoutBubble: '妈~~',
     quips: ['我还小，别卷我'],

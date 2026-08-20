@@ -60,10 +60,11 @@ degrades to manual interaction only.
 
 Since rc.7, Settings → Plugins → Plugin configuration hosts the "Niulai Pet" card:
 sound / shout-on-done / shout repeats (1–3) / done delay (0–120s) / loop-shout-until-
-touched / chatter bubbles / chatter lines (one per line; non-empty replaces the
-built-in shared pool) / skin picker / done & poke action dropdowns (editing the
-current skin's bindings). The shout loop stops on poke, drag, a new session start,
-mute, or flipping the switch off, with a 60-shout safety cap. The card and the
+touched / mom's "Niulai!" reply / chatter bubbles / chatter lines (one per line;
+non-empty replaces the built-in shared pool) / skin picker / done & poke action
+dropdowns (editing the current skin's bindings). The shout loop stops on poke, drag,
+a new session start, mute, or flipping the switch off, with a 60-shout safety cap;
+when stopped by interaction, mom answers with a "Niulai!" line. The card and the
 pet's right-click menu read and write the same configuration — change either side and
 the other reflects it immediately. Persistence is owned by the dsh host
 (`~/.dsh/settings.yaml`, shared across browsers). Legacy localStorage preferences are

@@ -44,6 +44,8 @@ export interface SkinDef {
   voice: VoiceName
   /** voice=mama 时的喊声 mp3（dataurl）若干。 */
   sounds?: string[]
+  /** 妈妈的回应「牛来！」mp3（dataurl，可选；仅牛来系皮肤有）。 */
+  replySound?: string
   /** 签名动作。 */
   signature: ActionName
   /** 喊叫/戳戳气泡文案。 */
@@ -210,6 +212,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let shoutCount = initCfg.shoutCount
   let doneDelaySec = initCfg.doneDelaySec
   let shoutLoopOn = initCfg.shoutLoop
+  let replyOn = initCfg.replyNiulai
   let mood: Mood = 'idle'
   let destroyed = false
   let busySince: number | null = null
@@ -301,7 +304,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   // 预读 mp3 元数据拿真实时长：嘴部张合/气泡要撑满「妈~~~~」的长尾音
   const soundDur = new Map<string, number>()
   for (const s of assets.skins) {
-    for (const src of s.sounds ?? []) {
+    for (const src of [...(s.sounds ?? []), ...(s.replySound !== undefined ? [s.replySound] : [])]) {
       const probe = new Audio()
       probe.preload = 'metadata'
       probe.addEventListener('loadedmetadata', () => { soundDur.set(src, probe.duration) })
@@ -331,6 +334,20 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       return 450
     }
     return 0
+  }
+
+  /**
+   * 妈妈的回应「牛来！」：只放声+气泡，不动嘴（不是宠物在喊）。
+   * 时机：连喊接龙放完（循环模式关），或循环喊被互动打断时。
+   */
+  const playReply = (): void => {
+    if (muted || !replyOn || destroyed) return
+    const src = cur().replySound
+    if (src === undefined) return
+    const audio = new Audio(src)
+    void audio.play().catch(() => {})
+    const d = soundDur.get(src)
+    showBubble('牛来！', Math.max(1500, Math.round((d ?? 1.8) * 1000) + 300))
   }
   // 浏览器自动播放策略：首次任意交互时暖一下 AudioContext
   const unlock = (): void => { audioCtx() }
@@ -720,10 +737,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   // （戳/拖/新任务开始/静音或开关关闭）；60 声兜底自停，防忘关叫一宿。
   let shoutLoopTimer = 0
   let shoutLoopLeft = 0
-  const stopShoutLoop = (): void => {
+  /** 停循环；withReply=true（互动/新任务打断）且循环确实在跑时，妈妈回一句。 */
+  const stopShoutLoop = (withReply = false): void => {
+    const wasActive = shoutLoopTimer !== 0 || shoutLoopLeft > 0
     window.clearTimeout(shoutLoopTimer)
     shoutLoopTimer = 0
     shoutLoopLeft = 0
+    if (withReply && wasActive) playReply()
   }
   const shoutLoopTick = (): void => {
     shoutLoopTimer = 0
@@ -744,7 +764,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (shoutOnDone && !muted) {
       // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
       const chain = (n: number): void => {
-        if (n <= 0 || destroyed) return
+        if (destroyed) return
+        if (n <= 0) {
+          // 接龙放完：非循环模式时妈妈回一句；循环模式的回应在打断时给
+          if (!shoutLoopOn) playReply()
+          return
+        }
         const ms = playVoice()
         if (ms <= 0) return
         const next = (): void => chain(n - 1)
@@ -784,10 +809,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     showBubble(cur().shoutBubble === '' ? '！' : cur().shoutBubble, Math.max(1500, ms + 300))
   }
 
-  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊。 */
+  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
-    stopShoutLoop()
+    stopShoutLoop(true)
     shout()
     runAction(pokeAction())
   }
@@ -806,7 +831,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (menu.contains(ev.target as Node) || about.contains(ev.target as Node)) return
     dragging = false
     downAt = performance.now()
-    stopShoutLoop() // 任意上手互动（含拖拽与点击预备）都停循环喊
+    stopShoutLoop(true) // 任意上手互动（含拖拽与点击预备）都停循环喊，妈妈回一句
     dragStartX = ev.clientX
     dragStartY = ev.clientY
     petStartX = x
@@ -934,7 +959,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     shoutCount = c.shoutCount
     doneDelaySec = c.doneDelaySec
     shoutLoopOn = c.shoutLoop
-    if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效
+    replyOn = c.replyNiulai
+    if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效（设置开关不算互动，不回一句）
     const next = findSkin(c.skin)
     if (next !== skin) {
       skin = next
@@ -952,7 +978,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     poke,
     setBusy(since) {
       busySince = since
-      if (since !== null) stopShoutLoop() // 新任务开跑：别再喊了
+      if (since !== null) stopShoutLoop(true) // 新任务开跑：别再喊了；打断时妈妈回一句
     },
     setMuted(m) {
       config.set({ muted: m })

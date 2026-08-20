@@ -46,6 +46,8 @@ export interface PetConfig {
   doneDelaySec: number
   /** 完成后循环喊直到互动停止。 */
   shoutLoop: boolean
+  /** 喊完/循环被打断时妈妈回一句「牛来！」。 */
+  replyNiulai: boolean
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -63,6 +65,7 @@ export interface Persisted {
   quips?: string[]
   doneDelaySec?: number
   shoutLoop?: boolean
+  replyNiulai?: boolean
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -227,7 +230,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop'] as const) {
+    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -280,6 +283,7 @@ export class ConfigStore {
       doneDelaySec: typeof p.doneDelaySec === 'number' && Number.isInteger(p.doneDelaySec)
         ? Math.min(120, Math.max(0, p.doneDelaySec)) : 0,
       shoutLoop: p.shoutLoop === true,
+      replyNiulai: p.replyNiulai !== false,
     }
   }
 
@@ -296,6 +300,7 @@ export class ConfigStore {
       quips: Array.isArray(r.quips) ? r.quips as string[] : undefined,
       doneDelaySec: typeof r.doneDelaySec === 'number' ? r.doneDelaySec : undefined,
       shoutLoop: r.shoutLoop === true,
+      replyNiulai: r.replyNiulai !== false,
     })
   }
 

@@ -57,6 +57,8 @@ export const Config = z.object({
   doneDelaySec: z.number().step(1).min(0).max(120).default(0),
   /** 完成后循环喊直到互动停止（戳/拖/新任务开始/静音或本开关关闭；60 声兜底自停）。 */
   shoutLoop: z.boolean().default(false),
+  /** 喊完（或循环喊被互动打断）时妈妈回一句「牛来！」（默认开）。 */
+  replyNiulai: z.boolean().default(true),
 })
 
 /**
