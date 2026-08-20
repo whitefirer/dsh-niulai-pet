@@ -10,9 +10,11 @@ dsh (DeepSeek Harness) web UI. It breathes, blinks, strolls around, naps and gos
 speech bubbles; the moment your agent finishes a task, it jumps up and shouts
 **"Ma~~ma~~"** — with mouth-synced voice, tail note held to the very end.
 
-All functionality lives in the browser (client half); the host half is a no-op
-(`index.js`) that exists only so `dsh plugin add` recognizes the package
-(`dsh.bundle` manifest). **Updates apply on page refresh — no host restart**.
+The pet itself is all browser-side (client half); the host half (`index.js`) only
+registers a settings namespace — on dsh rc.7+ that gives the pet a settings card
+under Settings → Plugins, persisted by the dsh host (`~/.dsh/settings.yaml`).
+On rc.6 and earlier everything still works with localStorage-backed config;
+there is just no card. **Updates apply on page refresh — no host restart**.
 
 **[Try it online (no install)](https://whitefirer.org/niulai-pet/)** — the same
 code as a standalone page, with a simulated task driver for celebrations.
@@ -45,11 +47,25 @@ code as a standalone page, with a simulated task driver for celebrations.
 
 Action library: fly (upward arc), dance, spin, triple hop, roll, breach, cow-sway.
 Any skin can bind any action; "signature" follows the current skin, "random" picks live.
+Action bindings are **per skin**: switching skins never clears another skin's
+bindings, and an unconfigured skin falls back to its defaults (done = signature,
+poke = triple hop).
 
 Completion is detected from the client runtime's `sessions.list` snapshot subscription:
 `running` flipping true→false (foreground session finished) or `completed` newly set
 (background session done). On hosts too old to expose the sessions service the pet
 degrades to manual interaction only.
+
+## Settings card (dsh rc.7+)
+
+Since rc.7, Settings → Plugins → Plugin configuration hosts the "Niulai Pet" card:
+sound / shout-on-done / shout repeats (1–3) / chatter bubbles / skin picker /
+done & poke action dropdowns (editing the current skin's bindings). The card and the
+pet's right-click menu read and write the same configuration — change either side and
+the other reflects it immediately. Persistence is owned by the dsh host
+(`~/.dsh/settings.yaml`, shared across browsers). Legacy localStorage preferences are
+migrated on first load (values already changed on the settings page win); the position
+`x` stays per-device in localStorage and is not a setting.
 
 ## Install
 

@@ -1,36 +1,21 @@
 /**
- * dsh-niulai-pet client 入口：挂载桌宠 + 订阅 sessions 服务驱动庆祝/耗时气泡。
+ * dsh-niulai-pet client 入口：挂载桌宠 + 订阅 sessions 服务驱动庆祝/耗时气泡
+ * + （dsh rc.7+）注册设置卡片。
  *
- * 皮肤素材全部从本地 assets/ 内联（esbuild dataurl），随库发布；
- * 奶牛/熊猫/鲸鱼为手绘扁平风。刷新页面即换形象/声音。
+ * 皮肤注册表在 skins.ts（独立模块，demo 试玩页直接引它，不经过本入口——
+ * 本入口引入设置卡片会带上 react，demo bundle 不含 react）。
  * @module dsh-niulai-pet/client
  */
 
-import petImage from '../../assets/pet.png'
-import petShout from '../../assets/pet_shout.png'
-import petBlink from '../../assets/pet_blink.png'
-import petYoung from '../../assets/pet_young.png'
-import petYoungShout from '../../assets/pet_young_shout.png'
-import petYoungBlink from '../../assets/pet_young_blink.png'
-import petFly from '../../assets/pet_fly.png'
-import petFlyShout from '../../assets/pet_fly_shout.png'
-import petYoungFly from '../../assets/pet_young_fly.png'
-import petYoungFlyShout from '../../assets/pet_young_fly_shout.png'
-import cowImage from '../../assets/cow.png'
-import cowBlink from '../../assets/cow_blink.png'
-import pandaImage from '../../assets/panda.png'
-import pandaBlink from '../../assets/panda_blink.png'
-import whaleImage from '../../assets/whale.png'
-import whaleBlink from '../../assets/whale_blink.png'
-import whaleSpout from '../../assets/whale_spout.png'
-import mama1 from '../../assets/mama1.mp3'
-import mama2 from '../../assets/mama2.mp3'
-import petOrig from '../../assets/pet_orig.png'
-import petOrigShout from '../../assets/pet_orig_shout.png'
-import petOrigBlink from '../../assets/pet_orig_blink.png'
-import { mountPet, type PetHandle, type SkinDef } from './pet.js'
+import { mountPet, type PetHandle } from './pet.js'
+import { SKINS } from './skins.js'
+import { ConfigStore } from './config.js'
+import { registerSettingsCard } from './card.js'
 
-/** 必需服务：无（slots 都不用 —— 桌宠是独立 fixed 浮层）。 */
+export { SKINS } from './skins.js'
+export type { SkinDef } from './pet.js'
+
+/** 必需服务：无 —— 桌宠本体不依赖任何宿主服务；设置卡片走可选子 fiber。 */
 export const inject: string[] = []
 
 /** client ctx 面（cordis-client-runner guard 代理兼容，照 dsh-browser-fs）。 */
@@ -53,81 +38,6 @@ interface SessionRow {
 interface SessionsService {
   list: Snapshot<{ byId: Record<string, SessionRow> }>
 }
-
-/** 皮肤注册表：新角色在这里挂素材即上线。（demo  standalone 试玩页也复用此表） */
-export const SKINS: SkinDef[] = [
-  {
-    id: 'niulai',
-    name: '牛来',
-    image: petImage,
-    imageShout: petShout,
-    imageBlink: petBlink,
-    imageFly: petFly,
-    imageFlyShout: petFlyShout,
-    voice: 'mama',
-    sounds: [mama1, mama2],
-    signature: 'hops',
-    shoutBubble: '妈~~妈~~',
-    quips: ['妈——！', '我会飞你信不信'],
-  },
-  {
-    id: 'orig',
-    name: '牛来原皮',
-    image: petOrig,
-    imageShout: petOrigShout,
-    imageBlink: petOrigBlink,
-    voice: 'mama',
-    sounds: [mama1, mama2],
-    signature: 'hops',
-    shoutBubble: '妈~~妈~~',
-    quips: ['妈——！', '我还没长角呢'],
-  },
-  {
-    id: 'young',
-    name: '小黄',
-    image: petYoung,
-    imageShout: petYoungShout,
-    imageBlink: petYoungBlink,
-    imageFly: petYoungFly,
-    imageFlyShout: petYoungFlyShout,
-    voice: 'mama',
-    sounds: [mama1, mama2],
-    signature: 'roll',
-    shoutBubble: '妈~~',
-    quips: ['我还小，别卷我'],
-  },
-  {
-    id: 'cow',
-    name: '奶牛',
-    image: cowImage,
-    imageBlink: cowBlink,
-    voice: 'moo',
-    signature: 'roll',
-    shoutBubble: '哞——！',
-    quips: ['今天的奶产量达标了吗', '黑白配，永不过时'],
-  },
-  {
-    id: 'panda',
-    name: '熊猫',
-    image: pandaImage,
-    imageBlink: pandaBlink,
-    voice: 'squeak',
-    signature: 'roll',
-    shoutBubble: '嗯嗯！',
-    quips: ['竹子比 bug 好吃', '滚滚滚，别催'],
-  },
-  {
-    id: 'whale',
-    name: '蓝鲸',
-    image: whaleImage,
-    imageBlink: whaleBlink,
-    imageSpout: whaleSpout,
-    voice: 'whale',
-    signature: 'breach',
-    shoutBubble: '噗——！',
-    quips: ['深海里没有 deadline', '咕嘟咕嘟'],
-  },
-]
 
 interface WatchCallbacks {
   /** 有会话完成时触发。 */
@@ -180,8 +90,15 @@ function watchSessions(ctx: ClientCtx, cb: WatchCallbacks): void {
 
 export function apply(ctx: ClientCtx): void {
   const start = (): void => {
-    const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' })
+    const store = new ConfigStore({ skinIds: SKINS.map((s) => s.id), defaultSkin: 'niulai' })
+    const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' }, store)
     watchSessions(ctx, { onDone: pet.celebrate, onBusy: pet.setBusy })
+    // 设置卡片（dsh rc.7+）：可选注入——settingsScope/slots/locale 任一缺席
+    // （rc.6 及更早）子 fiber 就永远等不到服务，静默没有卡片；桌宠与菜单
+    // 不受影响，配置继续走 localStorage 后端。
+    ctx.inject(['slots', 'locale', 'settingsScope', 'connection', 'remote'], (cardCtx: unknown) => {
+      registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store)
+    })
     // 验证钩子：?petdebug=1 时暴露句柄（playwright 触发 celebrate/fly 等）
     if (new URLSearchParams(location.search).has('petdebug')) {
       ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet

@@ -8,7 +8,7 @@
  * @module dsh-niulai-pet/demo
  */
 
-import { SKINS } from './index.js'
+import { SKINS } from './skins.js'
 import { mountPet, type PetHandle } from './pet.js'
 
 /** 模拟 agent 任务卡片：跑任务 → 忙（耗时气泡）→ 完成 → 庆祝喊妈。 */

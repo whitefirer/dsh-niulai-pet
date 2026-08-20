@@ -8,11 +8,15 @@
  *  - celebrate：任务完成 —— 叫声 + 气泡（受开关/静音约束）+ 事件绑定动作
  *  - 喊叫期间嘴部张合（有张嘴图的皮肤）；2.5~6s 随机眨眼（有闭眼图的皮肤）
  *
- * 交互：点击=戳（喊+绑定动作）；拖拽=换位（localStorage 记忆）；右键=菜单
+ * 交互：点击=戳（喊+绑定动作）；拖拽=换位（localStorage 记忆，按设备）；右键=菜单
  * （声音 / 完成时喊 / 气泡唠叨为胶囊开关；动作与皮肤为循环项；另有飞一圈 /
  * 只喊不跳的喊一声 / 关于面板）。
- * 动作可绑定到事件，「签名」= 跟随当前皮肤的招牌动作，「随机」= 现场抽。
+ * 动作可绑定到事件，「签名」= 跟随当前皮肤的招牌动作，「随机」= 现场抽；
+ * 绑定按皮肤记（config.ts 的 ConfigStore：dsh rc.7+ 走 settings scope，
+ * 更老版本回退 localStorage），切换皮肤不清空另一皮肤的绑定。
  */
+
+import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
 export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
@@ -68,13 +72,13 @@ export interface PetHandle {
 
 type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 
-const STORE_KEY = 'dsh-niulai-pet:state-v1'
 const BOTTOM = 18 // 距视口底 px
 const PET_H = 120 // 显示高度 px
 
 /** 随机池（具体动作）。 */
 const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway']
-const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
+/** 动作全序（菜单循环顺序、设置卡片下拉项；新增动作时同步 host 半 index.js 的 ACTION_IDS）。 */
+export const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
 const ACTION_LABEL: Record<ActionName, string> = {
   signature: '签名动作', fly: '飞行', dance: '摇摆舞', spin: '转圈', hops: '连跳',
   roll: '翻滚', breach: '跃出水面', sway: '奶牛摇', random: '随机',
@@ -90,37 +94,6 @@ const QUIPS = [
   '这代码我看得都着急',
   '喝口水吧',
 ]
-
-interface Persisted {
-  x?: number
-  muted?: boolean
-  /** 任务完成时喊（默认开）。 */
-  shoutOnDone?: boolean
-  /** 气泡唠叨（默认开）。 */
-  talkative?: boolean
-  skin?: string
-  /** 任务完成绑定的动作（默认签名动作）。 */
-  doneAction?: ActionName
-  /** 戳一下绑定的动作（默认连跳）。 */
-  pokeAction?: ActionName
-  /** 完成时连喊几声（1-3，默认 1）。 */
-  shoutCount?: number
-}
-
-function loadPersisted(): Persisted {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    return raw === null ? {} : (JSON.parse(raw) as Persisted)
-  } catch {
-    return {}
-  }
-}
-
-function savePersisted(p: Persisted): void {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(p))
-  } catch { /* 隐私模式放弃记忆 */ }
-}
 
 function asAction(v: unknown, fallback: ActionName): ActionName {
   return typeof v === 'string' && (ACTION_ORDER as string[]).includes(v) ? (v as ActionName) : fallback
@@ -217,21 +190,24 @@ function synthSqueak(ctx: AudioContext): void {
   }
 }
 
-export function mountPet(assets: PetAssets): PetHandle {
-  const persisted = loadPersisted()
+export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   const skins = assets.skins.length > 0
     ? assets.skins
     : [{ id: 'fallback', name: '桌宠', image: '', voice: null, signature: 'hops' as ActionName, shoutBubble: '' }]
-  // 兼容旧版皮肤 id（classic → 第一个皮肤）
+  const skinIds = skins.map((s) => s.id)
+  // 行为配置统一走 ConfigStore（localStorage / dsh settings scope 双后端）；
+  // 下方局部变量只是它的快照镜像，写一律经 config.set / config.setSkinAction
+  const config = store ?? new ConfigStore({ skinIds, defaultSkin: assets.defaultSkin })
+  /** 位置 x 的文档读写（按设备，永远 localStorage；行为键不归这里管）。 */
+  const loadDoc = (): Persisted => loadPersisted(skinIds, assets.defaultSkin)
   const findSkin = (id: string | undefined): SkinDef =>
     skins.find((s) => s.id === id) ?? skins[0]
-  let skin: SkinDef = findSkin(persisted.skin === 'classic' ? assets.defaultSkin : (persisted.skin ?? assets.defaultSkin))
-  let muted = persisted.muted === true
-  let shoutOnDone = persisted.shoutOnDone !== false
-  let talkative = persisted.talkative !== false
-  let doneAction = asAction(persisted.doneAction, 'signature')
-  let pokeAction = asAction(persisted.pokeAction, 'hops')
-  let shoutCount = persisted.shoutCount === 2 || persisted.shoutCount === 3 ? persisted.shoutCount : 1
+  const initCfg = config.getSnapshot()
+  let skin: SkinDef = findSkin(initCfg.skin)
+  let muted = initCfg.muted
+  let shoutOnDone = initCfg.shoutOnDone
+  let talkative = initCfg.talkative
+  let shoutCount = initCfg.shoutCount
   let mood: Mood = 'idle'
   let destroyed = false
   let busySince: number | null = null
@@ -309,7 +285,7 @@ export function mountPet(assets: PetAssets): PetHandle {
 
   // 起始 x（记忆或默认右下偏左，避开右下角卡片区）
   let x = Math.min(
-    Math.max(0, persisted.x ?? window.innerWidth - 320),
+    Math.max(0, loadDoc().x ?? window.innerWidth - 320),
     window.innerWidth - 80,
   )
   let facing: 1 | -1 = 1 // 1=朝右
@@ -663,6 +639,11 @@ export function mountPet(assets: PetAssets): PetHandle {
 
   const flyAcross = (): Promise<void> => flight('dive')
 
+  /** 当前皮肤的完成绑定（按皮肤记，缺配回落签名动作）。 */
+  const doneAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.done, 'signature')
+  /** 当前皮肤的戳一下绑定（按皮肤记，缺配回落连跳）。 */
+  const pokeAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.poke, 'hops')
+
   /** 事件动作派发：signature 解析为当前皮肤签名；random 现场抽。 */
   const runAction = (name: ActionName): void => {
     if (destroyed || mood === 'drag' || mood === 'fly') return
@@ -749,7 +730,7 @@ export function mountPet(assets: PetAssets): PetHandle {
       const text = cur().shoutBubble
       showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
     }
-    runAction(doneAction) // 安静模式也照做动作，只是没声没气泡
+    runAction(doneAction()) // 安静模式也照做动作，只是没声没气泡
   }
 
   /** 只喊不跳（菜单「喊一声」）：嘴部张合与气泡都撑满喊声全长。 */
@@ -764,7 +745,7 @@ export function mountPet(assets: PetAssets): PetHandle {
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
     shout()
-    runAction(pokeAction)
+    runAction(pokeAction())
   }
 
   // ---- 指针交互（点击 vs 拖拽）----
@@ -817,7 +798,7 @@ export function mountPet(assets: PetAssets): PetHandle {
     if (wasDragging) {
       mood = 'idle'
       root.style.transform = `translateX(${x}px) scaleX(${facing})`
-      savePersisted({ ...loadPersisted(), x })
+      savePersisted({ ...loadDoc(), x })
       // 落地回弹
       void hop(20, 260)
       if (!destroyed) breathe.play()
@@ -835,21 +816,20 @@ export function mountPet(assets: PetAssets): PetHandle {
 
   const rebuildMenu = (): void => {
     menu.textContent = ''
-    const persist = (patch: Persisted): void => {
-      savePersisted({ ...loadPersisted(), ...patch })
-    }
     const cycleAction = (a: ActionName): ActionName =>
       ACTION_ORDER[(ACTION_ORDER.indexOf(a) + 1) % ACTION_ORDER.length]
     const skinIdx = skins.indexOf(skin)
     const nextSkin = skins[(skinIdx + 1) % skins.length]
+    // 读写都走 ConfigStore：菜单行只发写请求，显示值来自 store 快照镜像
+    // （store 变更 → 文末订阅 → syncConfig + 菜单就地重建，设置卡片同理）
     const rows: Row[] = [
-      { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { muted = !muted; persist({ muted }) } },
-      { kind: 'bool', label: '📣 完成时喊', on: shoutOnDone, fn: () => { shoutOnDone = !shoutOnDone; persist({ shoutOnDone }) } },
-      { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { shoutCount = shoutCount % 3 + 1; persist({ shoutCount }) } },
-      { kind: 'bool', label: '💬 气泡唠叨', on: talkative, fn: () => { talkative = !talkative; persist({ talkative }) } },
-      { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction], fn: () => { doneAction = cycleAction(doneAction); persist({ doneAction }) } },
-      { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction], fn: () => { pokeAction = cycleAction(pokeAction); persist({ pokeAction }) } },
-      { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { skin = nextSkin; persist({ skin: skin.id }); if (mood !== 'fly') img.src = skinIdle() } },
+      { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
+      { kind: 'bool', label: '📣 完成时喊', on: shoutOnDone, fn: () => { config.set({ shoutOnDone: !shoutOnDone }) } },
+      { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
+      { kind: 'bool', label: '💬 气泡唠叨', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
+      { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
+      { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
+      { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { config.set({ skin: nextSkin.id }) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '📢 喊一声', fn: () => { shout() } },
       { kind: 'action', label: 'ℹ️ 关于', fn: () => { about.style.display = about.style.display === 'block' ? 'none' : 'block' } },
@@ -899,6 +879,26 @@ export function mountPet(assets: PetAssets): PetHandle {
   const onResize = (): void => { clampX(); applyX() }
   window.addEventListener('resize', onResize)
 
+  // 配置同步：菜单/设置卡片/迁移 seed 任一端改动，经 store 订阅收敛到
+  // 局部镜像；皮肤变化换装；菜单开着时就地重建刷新显示值
+  const syncConfig = (): void => {
+    const c = config.getSnapshot()
+    muted = c.muted
+    shoutOnDone = c.shoutOnDone
+    talkative = c.talkative
+    shoutCount = c.shoutCount
+    const next = findSkin(c.skin)
+    if (next !== skin) {
+      skin = next
+      if (mood !== 'fly') img.src = skinIdle()
+    }
+  }
+  const unsubConfig = config.subscribe(() => {
+    if (destroyed) return
+    syncConfig()
+    if (menu.style.display === 'block') rebuildMenu()
+  })
+
   return {
     celebrate,
     poke,
@@ -906,14 +906,14 @@ export function mountPet(assets: PetAssets): PetHandle {
       busySince = since
     },
     setMuted(m) {
-      muted = m
-      savePersisted({ ...loadPersisted(), muted })
+      config.set({ muted: m })
     },
     isMuted() {
       return muted
     },
     destroy() {
       destroyed = true
+      unsubConfig()
       keeper.disconnect()
       window.clearTimeout(behaveTimer)
       window.clearTimeout(chatterTimer)

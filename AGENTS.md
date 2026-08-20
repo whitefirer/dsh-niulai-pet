@@ -5,12 +5,18 @@
 
 ## 是什么
 
-dsh（DeepSeek Harness）web 的**客户端插件**：右下角 fixed 浮层桌宠，6 个皮肤，
-订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。全部能力在
-client 半（`lib/client.js`）；host 半 `index.js` 是空插件，`dsh.bundle`
-manifest + `cordis.patch.yml` 仅为官方 CLI 安装识别（awesome 收录硬性要求）。
-**若早期经 pnpm file + market client-only shim 装过，需用官方 CLI 重装一次**
-（`dsh plugin --profile web add file:...`）让它进 bundles 层栈。
+dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，6 个皮肤，
+订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。
+- **client 半**（`lib/client.js`）：桌宠本体 + 设置卡片（dsh rc.7+ 设置页
+  「插件配置」区，React 组件，react 由宿主模块表提供、构建时 external）。
+- **host 半**（`index.js`）：仅注册 settings 命名空间 `niulai-pet`
+  （`installSettingsSection`，schemastery schema）——这是设置卡片的配对键，
+  持久化由 dsh host 白拿（`~/.dsh/settings.yaml`）。rc.6 无 settings 服务时
+  installSettingsSection 内部 inject 永远等不到，静默跳过。
+`dsh.bundle` manifest + `cordis.patch.yml` 同时满足官方 CLI 安装识别
+（awesome 收录硬性要求）。**若早期经 pnpm file + market client-only shim
+装过，需用官方 CLI 重装一次**（`dsh plugin --profile web add file:...`）
+让它进 bundles 层栈。
 
 ## 构建与调试
 
@@ -24,7 +30,13 @@ npm run typecheck  # tsc --noEmit
   浏览器打开 `demo/index.html` 即可玩；线上部署 = 把 demo/ 两文件拷到任意静态目录
   （当前挂在博客 `static/niulai-pet/` → whitefirer.org/niulai-pet/）。
 - 安装调试：`cd ~/.dsh/profiles/web && pnpm add file:<本仓库路径>`，首次重启一次
-  dsh web；之后 `build + 刷新页面`即可。
+  dsh web；之后 `build + 刷新页面`即可（lib/client.js 与注入副本是同一 inode
+  硬链，esbuild 原地写自动同步）。**注意 pnpm file: 注入缓存**：改了
+  `index.js` / `cordis.patch.yml` / `package.json`（非构建产物）pnpm 不会重同步
+  （2026-08-21 踩过：注入目录残留 0.1.0 的 package.json），要手动
+  `cp index.js cordis.patch.yml package.json ~/.dsh/profiles/web/node_modules/dsh-niulai-pet/`
+  再重启 dsh web（host 半改动必须重启才加载）。新 dependencies 由 pnpm 正常解析
+  进 profile 顶层 node_modules，无需手动管。
 - 验证钩子：页面 URL 加 `?petdebug=1` → `window.__niulai`（PetHandle）。
 - playwright 可用，从绝对路径 import：
   `/home/tenbox/Desktop/Devspace/cenacle/web/node_modules/playwright/index.mjs`。
@@ -43,14 +55,18 @@ workflow 会校验 tag 与版本号一致，不符直接失败。手动兜底：
 ## 架构
 
 ```
-src/client/index.ts  入口：素材 import、SKINS 皮肤注册表（导出）、sessions 订阅（含忙闲沿）
-src/client/pet.ts    桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声
-src/client/demo.ts   standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
+src/client/index.ts   入口：ConfigStore 创建、sessions 订阅（含忙闲沿）、卡片子 fiber
+src/client/skins.ts   SKINS 皮肤注册表（导出）+ 素材 import；独立成模块让 demo 不带 react
+src/client/pet.ts     桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声
+src/client/config.ts  ConfigStore：localStorage / settings scope 双后端 + 旧版迁移
+src/client/card.tsx   设置卡片：React 组件 + CardController + registerSettingsCard
+src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
 ```
 
-**SkinDef（index.ts）**：`{ id, name, image, imageBlink?, imageShout?, imageFly?,
+**SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, imageFly?,
 imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`。
-加新皮肤 = 加素材 + 注册一条，零改 pet.ts。
+加新皮肤 = 加素材 + skins.ts 注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，
+零改 pet.ts。
 
 **pet.ts 状态机**：`mood ∈ idle/walk/drag/celebrate/sleep/fly`。
 行为循环只在 `idle` 触发；动作派发 `runAction(name)` 解析
@@ -58,8 +74,13 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 **喊声是独立状态**：`shouting` 旗标（mouthShout 置位/复归）——sleep、眨眼等
 idle 行为必须查它让位（喊声不改 mood，只查 mood 会演出"边喊边趴下变暗"）。
 
-**持久化**（localStorage `dsh-niulai-pet:state-v1`）：
-`x / muted / shoutOnDone / talkative / skin / doneAction / pokeAction / shoutCount`。
+**持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
+talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
+缺配回落 done=签名/poke=连跳）。dsh rc.7+ 走 settings scope（Host 持久化，
+scope.set 乐观回显 pending 层）；更老版本回退 localStorage
+（`dsh-niulai-pet:state-v1`）。位置 `x` 按设备永远留 localStorage，pet.ts 直读直写。
+旧文档迁移：全局 doneAction/pokeAction 一次性改写为全皮肤 actions，
+`classic` 皮肤 id 改写为默认皮肤。
 
 ## 动画的三条铁律（都踩过坑）
 
@@ -117,6 +138,14 @@ assets/ 与 lib/ 均入库。
 
 ## 其它坑
 
+- **设置卡片配对**：host 半 `installSettingsSection(ctx, NS, …)` 注册的命名空间
+  与浏览器半 `settings.plugin.item` 的 `key` 以字符串配对（都是 `niulai-pet`），
+  设置页自动配对渲染；被 serve 却无人认领的命名空间不渲染，反之亦然。
+  dsh vendored cordis **没有** `{required:false}` 可选注入语法——可选 = 顶层
+  `inject` 保持空，apply 内 `ctx.inject([...], cb)` 子 fiber 等服务
+  （settingsScope/slots/locale/connection/remote 缺一即永不激活，rc.6 静默无卡片）。
+  卡片控件即时写（离散控件不套官方 CardForm 的 staged/save）；读侧是
+  ConfigStore 的 subscribe，uSES 要求 getSnapshot 稳定引用（不变时同一对象）。
 - 菜单行点击曾被 root 的 `setPointerCapture` 截胡成 poke——root 的 pointerdown
   对 menu/about 区域直接 return。
 - `ctx.effect(fn)` 立即执行；清理函数要 `() => () => cleanup()`。

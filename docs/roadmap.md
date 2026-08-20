@@ -102,16 +102,22 @@ WebGPU 比 WASM 快 5-10 倍但 Safari/Firefox 不行，须自动降级；
 - 唤醒词如果要上，openWakeWord（本地、可自定义词）优于 Porcupine（商用授权）
 - TTS 二期若做，Piper（本地）或浏览器 speechSynthesis（零依赖）二选一
 
-## 三、设置卡片（dsh rc.7+ 插件设置页）
+## 三、设置卡片（dsh rc.7+ 插件设置页）✅ 已完成
 
-dsh rc.7 起插件可自行注册设置卡片（dsh web 设置页内的插件专属区块）。
-现在散在浮层菜单里的开关应迁过去，菜单只留高频操作：
+已实现（dsh rc.7+）：host 半注册 settings 命名空间 `niulai-pet`，浏览器半
+往 `settings.plugin.item` 注册同名卡片，设置页「插件 → 插件配置」自动配对。
+卡片与浮层菜单共读同一份 ConfigStore，即时写 + subscribe 双向反映。
 
-- 候选配置：完成喊妈开关、连喊几声、音量/静音默认、默认皮肤、
-  唠叨气泡频率
-- 配置存哪：沿用 localStorage（纯客户端插件无 host 半状态），
-  设置卡片只是另一张皮，读写同一份键值
-- 注意 rc.7 以下版本没有设置卡片能力，注册失败要静默降级回菜单
+- 配置项：静音 / 完成时喊 / 连喊 1-3 声 / 气泡唠叨 / 皮肤；完成与戳一下的
+  动作绑定**按皮肤记**（`actions` 字典以皮肤 id 为键，切皮肤互不清空，
+  没配过的皮肤回落默认：签名动作 / 连跳）
+- 配置存哪（更正此前预判）：**dsh host 持久化** `~/.dsh/settings.yaml`
+  （schema 默认 < cordis entry < user 文档三层），不是 localStorage；
+  localStorage 只剩两条尾巴——rc.6 及更早的回退后端，和按设备的位置 `x`
+  （永久留本地，不进设置）
+- 降级：rc.6 及更早无 settingsScope 服务，卡片注册在可选注入子 fiber 里
+  静默跳过，桌宠与菜单照常；旧 localStorage 配置在 scope 首次就绪时按
+  字段 seed 进 user 层（不覆盖设置页已改过的值）
 
 ## 四、图片识别协同（依赖 browser-fs + dsh rc.8）
 
