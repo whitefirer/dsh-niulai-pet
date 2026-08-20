@@ -51,6 +51,8 @@ export const Config = z.object({
   skin: z.union(SKIN_IDS).default('niulai'),
   /** 按皮肤的动作绑定：{ [skinId]: { done, poke } }。 */
   actions: z.dict(z.object({ done: Action.default('signature'), poke: Action.default('hops') })).default({}),
+  /** 音量 0-100（默认 100；静音开关之外的细粒度）。 */
+  volume: z.number().step(1).min(0).max(100).default(100),
   /** 自定义唠叨语录（空 = 用内置通用池；非空时替换内置通用池，皮肤专属语录不受影响）。 */
   quips: z.array(z.string()).default([]),
   /** 完成动作延迟秒数（0 = 立即，上限 120）。 */

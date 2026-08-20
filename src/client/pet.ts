@@ -128,6 +128,20 @@ function audioCtx(): AudioContext | null {
 }
 
 /** 哞——：锯齿波下滑 + 低频震颤 + 低通。 */
+let volNode: GainNode | null = null
+/** 主音量节点（0-100 配置 → gain）；合成音都接它而不直连 destination。 */
+function volDest(ctx: AudioContext): AudioNode {
+  if (volNode === null) {
+    volNode = ctx.createGain()
+    volNode.connect(ctx.destination)
+  }
+  volNode.gain.value = masterVolume / 100
+  return volNode
+}
+
+/** 主音量镜像（pet.ts 内 playVoice/playReply 直接读；syncConfig 里同步）。 */
+let masterVolume = 100
+
 function synthMoo(ctx: AudioContext): void {
   const t0 = ctx.currentTime
   const osc = ctx.createOscillator()
@@ -147,7 +161,7 @@ function synthMoo(ctx: AudioContext): void {
   g.gain.setValueAtTime(0.0001, t0)
   g.gain.exponentialRampToValueAtTime(0.28, t0 + 0.09)
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.9)
-  osc.connect(lp); lp.connect(g); g.connect(ctx.destination)
+  osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
   osc.start(t0); lfo.start(t0)
   osc.stop(t0 + 0.95); lfo.stop(t0 + 0.95)
 }
@@ -173,7 +187,7 @@ function synthWhale(ctx: AudioContext): void {
   g.gain.setValueAtTime(0.0001, t0)
   g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.25)
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6)
-  osc.connect(lp); lp.connect(g); g.connect(ctx.destination)
+  osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
   osc.start(t0); lfo.start(t0)
   osc.stop(t0 + 1.65); lfo.stop(t0 + 1.65)
 }
@@ -190,7 +204,7 @@ function synthSqueak(ctx: AudioContext): void {
     g.gain.setValueAtTime(0.0001, t0 + off)
     g.gain.exponentialRampToValueAtTime(0.2, t0 + off + 0.03)
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.16)
-    osc.connect(g); g.connect(ctx.destination)
+    osc.connect(g); g.connect(volDest(ctx))
     osc.start(t0 + off); osc.stop(t0 + off + 0.18)
   }
 }
@@ -216,6 +230,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let doneDelaySec = initCfg.doneDelaySec
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
+  masterVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
   let voiceThreshold = initCfg.voiceThreshold
@@ -327,13 +342,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   /** 放一声当前皮肤的叫声，返回时长 ms（0=无声/被静音）。 */
   const playVoice = (): number => {
-    if (muted) return 0
+    if (muted || masterVolume === 0) return 0
     const s = cur()
     if (s.voice === 'mama') {
       const list = s.sounds ?? []
       if (list.length === 0) return 0
       const src = list[Math.floor(Math.random() * list.length)]
       const audio = new Audio(src)
+      audio.volume = masterVolume / 100
       playingAudio = audio
       audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
       void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
@@ -362,7 +378,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const src = cur().replySound
     if (src === undefined) return
     lastReplyAt = Date.now()
+    if (masterVolume === 0) return // 音量 0 视同静音（不回不放）
     const audio = new Audio(src)
+    audio.volume = masterVolume / 100
     void audio.play().catch(() => {})
     const d = soundDur.get(src)
     showBubble('牛来！', Math.max(1500, Math.round((d ?? 1.8) * 1000) + 300))
@@ -1079,6 +1097,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     doneDelaySec = c.doneDelaySec
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
+    masterVolume = c.volume
     voiceControlOn = c.voiceControl
     if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate) {
       // 换麦克风/调阈值/换模板：正在听就重启监听用上新值

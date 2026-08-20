@@ -27,6 +27,7 @@ const zh = {
   title: '牛来桌宠',
   description: '右下角桌宠的叫声、气泡唠叨与动作绑定',
   sound: '声音',
+  volume: '音量',
   shoutOnDone: '完成时喊',
   shoutCount: '完成连喊',
   doneDelay: '完成延迟（秒）',
@@ -80,6 +81,7 @@ const en: Record<keyof typeof zh, string> = {
   title: 'Niulai Pet',
   description: 'Voice, chatter bubbles, and per-skin action bindings of the corner pet',
   sound: 'Sound',
+  volume: 'Volume',
   shoutOnDone: 'Shout on task done',
   shoutCount: 'Shout repeats',
   doneDelay: 'Done delay (s)',
@@ -300,6 +302,36 @@ function NumberField(props: { value: number; min: number; max: number; disabled:
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
       onChange={(e) => { setDraft(e.target.value) }}
     />
+  )
+}
+
+/** 音量滑杆：拖动中本地预览（不刷 RPC），松手/失焦才提交。 */
+function VolumeField(props: { value: number; disabled: boolean; label: string; onCommit(n: number): void }) {
+  const [draft, setDraft] = useState(props.value)
+  const [dragging, setDragging] = useState(false)
+  if (!dragging && draft !== props.value) setDraft(props.value)
+  const commit = (): void => {
+    setDragging(false)
+    if (draft !== props.value) props.onCommit(draft)
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        aria-label={props.label}
+        disabled={props.disabled}
+        value={draft}
+        style={{ width: 110, accentColor: 'var(--dsw-alias-brand-primary, #3b82f6)', opacity: props.disabled ? 0.4 : 1 }}
+        onChange={(e) => { setDragging(true); setDraft(Number(e.target.value)) }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 30, textAlign: 'right' }}>{draft}%</span>
+    </span>
   )
 }
 
@@ -638,6 +670,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
             {!writable ? <p role="status" style={{ margin: '12px 0 0', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('readOnly')}</p> : null}
             <Row label={t('sound')}>
               <Switch on={!cfg.muted} disabled={disabled} label={t('sound')} onChange={(on) => { props.set({ muted: !on }) }} />
+            </Row>
+            <Row label={t('volume')}>
+              <VolumeField value={cfg.volume} disabled={disabled} label={t('volume')} onCommit={(n) => { props.set({ volume: n }) }} />
             </Row>
             <Row label={t('shoutOnDone')}>
               <Switch on={cfg.shoutOnDone} disabled={disabled} label={t('shoutOnDone')} onChange={(on) => { props.set({ shoutOnDone: on }) }} />

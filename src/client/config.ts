@@ -30,6 +30,8 @@ export interface SkinActionBinding {
 /** 解析后的完整生效配置。 */
 export interface PetConfig {
   muted: boolean
+  /** 音量 0-100。 */
+  volume: number
   /** 任务完成时喊（默认开）。 */
   shoutOnDone: boolean
   /** 完成时连喊几声（1-3）。 */
@@ -65,6 +67,7 @@ export type PetConfigPatch = Partial<PetConfig>
 export interface Persisted {
   x?: number
   muted?: boolean
+  volume?: number
   shoutOnDone?: boolean
   talkative?: boolean
   skin?: string
@@ -251,7 +254,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -300,6 +303,8 @@ export class ConfigStore {
   private fromPersisted(p: Persisted): PetConfig {
     return {
       muted: p.muted === true,
+      volume: typeof p.volume === 'number' && Number.isInteger(p.volume)
+        ? Math.min(100, Math.max(0, p.volume)) : 100,
       shoutOnDone: p.shoutOnDone !== false,
       shoutCount: typeof p.shoutCount === 'number' && Number.isInteger(p.shoutCount)
         ? Math.min(99, Math.max(1, p.shoutCount)) : 1,
@@ -325,6 +330,7 @@ export class ConfigStore {
     const r = isRecord(v) ? v : {}
     return this.fromPersisted({
       muted: r.muted === true,
+      volume: typeof r.volume === 'number' ? r.volume : undefined,
       shoutOnDone: r.shoutOnDone !== false,
       talkative: r.talkative !== false,
       shoutCount: typeof r.shoutCount === 'number' ? r.shoutCount : undefined,
