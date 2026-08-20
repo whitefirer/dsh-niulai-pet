@@ -40,7 +40,7 @@ code as a standalone page, with a simulated task driver for celebrations.
 |---|---|
 | Idling | breathing; random blinks / hops / strolls / naps / wiggles; occasional quip bubbles |
 | Agent session running | elapsed-time bubble "AI has been running for Xm Ys…" |
-| Click (poke) | shouts once + bound action |
+| Click (poke) | shouts once + bound action; poking mid-loop just answers it (no extra shout) |
 | Drag | carried along, lands with a bounce; position persisted (localStorage) |
 | Right-click | menu: sound / shout-on-done / chatter toggle pills, shout repeat (1–3),<br>action bindings, skin picker, fly-by, shout, about |
 | Task done | voice line (repeatable, or looped until touched) + bubble + mouth timeline<br>(open-close-open, held through the tail note) + bound action (6s throttle, configurable delay) |

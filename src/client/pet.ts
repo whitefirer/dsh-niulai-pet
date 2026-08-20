@@ -748,7 +748,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let shoutLoopLeft = 0
   /** 停循环；withReply=true（互动/新任务打断）且循环确实在跑时，妈妈回一句。
    *  reason 只为定位「谁停的」留日志（踩过「没互动就停」的排查坑）。 */
-  const stopShoutLoop = (withReply = false, reason = '?'): void => {
+  const stopShoutLoop = (withReply = false, reason = '?'): boolean => {
     const wasActive = shoutLoopTimer !== 0 || shoutLoopLeft > 0
     window.clearTimeout(shoutLoopTimer)
     shoutLoopTimer = 0
@@ -756,6 +756,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (wasActive) console.log(`[dsh-niulai-pet] shout loop stop: ${reason}`)
     if (withReply && wasActive) playReply()
     syncVoice() // 循环停 → 立即关麦停流
+    return wasActive
   }
 
   // ---- 语音停喊（voiceControl）：循环喊期间开麦识别「牛来」，命中即停循环 ----
@@ -886,8 +887,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
-    stopShoutLoop(true, '戳一下')
-    shout()
+    // 循环在跑时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
+    const wasLooping = stopShoutLoop(true, '戳一下')
+    if (!wasLooping) shout()
     runAction(pokeAction())
   }
 
