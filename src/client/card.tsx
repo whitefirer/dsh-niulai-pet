@@ -157,7 +157,8 @@ function Switch(props: { on: boolean; disabled: boolean; label: string; onChange
       disabled={props.disabled}
       onClick={() => { props.onChange(!props.on) }}
       style={{
-        width: 36, height: 20, borderRadius: 10, border: 0, padding: 0, flex: 'none',
+        width: 36, height: 20, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 0, flex: 'none',
+        boxSizing: 'border-box',
         position: 'relative', transition: 'background .15s',
         cursor: props.disabled ? 'default' : 'pointer',
         background: props.on ? 'var(--dsw-alias-state-success-primary, #22c55e)' : colors.trackOff,
