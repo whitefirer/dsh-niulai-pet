@@ -40,6 +40,8 @@ export interface PetConfig {
   skin: string
   /** 按皮肤的动作绑定；缺配的皮肤由消费端回落默认（done=签名，poke=连跳）。 */
   actions: Record<string, SkinActionBinding>
+  /** 自定义唠叨语录（空 = 用内置通用池；非空时替换它，皮肤专属语录仍并入）。 */
+  quips: string[]
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -54,6 +56,7 @@ export interface Persisted {
   skin?: string
   shoutCount?: number
   actions?: Record<string, SkinActionBinding>
+  quips?: string[]
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -73,6 +76,16 @@ export interface SettingsScopeLike {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** 语录清洗：只留字符串、去空白、丢空条；上限 50 条 / 每条 120 字（防撑爆气泡）。 */
+function sanitizeQuips(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .filter((q): q is string => typeof q === 'string')
+    .map((q) => q.trim().slice(0, 120))
+    .filter((q) => q.length > 0)
+    .slice(0, 50)
 }
 
 /**
@@ -208,7 +221,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin'] as const) {
+    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -257,6 +270,7 @@ export class ConfigStore {
       talkative: p.talkative !== false,
       skin: this.validSkin(p.skin),
       actions: this.sanitizeActions(p.actions),
+      quips: sanitizeQuips(p.quips),
     }
   }
 
@@ -270,6 +284,7 @@ export class ConfigStore {
       shoutCount: typeof r.shoutCount === 'number' ? r.shoutCount : undefined,
       skin: typeof r.skin === 'string' ? r.skin : undefined,
       actions: isRecord(r.actions) ? r.actions as Record<string, SkinActionBinding> : undefined,
+      quips: Array.isArray(r.quips) ? r.quips as string[] : undefined,
     })
   }
 

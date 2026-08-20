@@ -702,7 +702,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
         const sec = Math.floor((Date.now() - busySince) / 1000)
         if (sec >= 30) showBubble(`AI 已经跑了 ${fmtDur(sec)}…`, 2800)
       } else if (Math.random() < 0.6) {
-        const pool = QUIPS.concat(cur().quips ?? [])
+        // 自定义语录非空时替换内置通用池；皮肤专属语录始终并入
+        const custom = config.getSnapshot().quips
+        const pool = (custom.length > 0 ? custom : QUIPS).concat(cur().quips ?? [])
         showBubble(pool[Math.floor(Math.random() * pool.length)], 2400)
       }
     }

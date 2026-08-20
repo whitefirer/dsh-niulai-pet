@@ -28,6 +28,8 @@ const zh = {
   shoutOnDone: '完成时喊',
   shoutCount: '完成连喊',
   talkative: '气泡唠叨',
+  quips: '唠叨语录',
+  quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
   skin: '皮肤',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
@@ -52,6 +54,8 @@ const en: Record<keyof typeof zh, string> = {
   shoutOnDone: 'Shout on task done',
   shoutCount: 'Shout repeats',
   talkative: 'Chatter bubbles',
+  quips: 'Chatter lines',
+  quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
   skin: 'Skin',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
@@ -217,6 +221,37 @@ function Row(props: { label: string; children: React.ReactNode }) {
   )
 }
 
+/**
+ * 语录编辑：本地草稿 + blur 提交（逐键入直接 scope.set 会把半个句子落盘，
+ * 且每键一次 RPC）。外部变更（菜单端/另一设备）在非聚焦时同步进草稿。
+ */
+function QuipsField(props: { value: string[]; disabled: boolean; placeholder: string; onCommit(quips: string[]): void }) {
+  const joined = props.value.join('\n')
+  const [draft, setDraft] = useState(joined)
+  const [focused, setFocused] = useState(false)
+  if (!focused && draft !== joined) setDraft(joined) // render 期同步（React 支持的模式）
+  return (
+    <textarea
+      rows={4}
+      style={{
+        width: '100%', boxSizing: 'border-box', resize: 'vertical', font: 'inherit', fontSize: 13,
+        lineHeight: 1.6, padding: '6px 10px', borderRadius: 8, border: `1px solid ${colors.border}`,
+        background: 'transparent', color: colors.labelPrimary, opacity: props.disabled ? 0.4 : 1,
+      }}
+      value={draft}
+      disabled={props.disabled}
+      placeholder={props.placeholder}
+      onFocus={() => { setFocused(true) }}
+      onBlur={() => {
+        setFocused(false)
+        const next = draft.split('\n').map((q) => q.trim()).filter((q) => q.length > 0)
+        if (next.join('\n') !== joined) props.onCommit(next)
+      }}
+      onChange={(e) => { setDraft(e.target.value) }}
+    />
+  )
+}
+
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
@@ -269,6 +304,12 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
             </Row>
+            <div style={{ padding: '9px 0' }}>
+              <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>{t('quips')}</div>
+              <QuipsField value={cfg.quips} disabled={disabled} placeholder={t('quipsHint')}
+                onCommit={(quips) => { props.set({ quips }) }} />
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('quipsHint')}</div>
+            </div>
             <Row label={t('skin')}>
               <select
                 style={selectStyle(disabled)}

@@ -51,6 +51,8 @@ export const Config = z.object({
   skin: z.union(SKIN_IDS).default('niulai'),
   /** 按皮肤的动作绑定：{ [skinId]: { done, poke } }。 */
   actions: z.dict(z.object({ done: Action.default('signature'), poke: Action.default('hops') })).default({}),
+  /** 自定义唠叨语录（空 = 用内置通用池；非空时替换内置通用池，皮肤专属语录不受影响）。 */
+  quips: z.array(z.string()).default([]),
 })
 
 /**
