@@ -1,7 +1,7 @@
 # AGENTS.md — dsh-niulai-pet
 
 > 桌宠插件的完整维护手册。用户面介绍看 README.md；本文件写给改代码的人/agent。
-> 未来规划（自定义皮肤、语音控制）与 STT 选型调研见 `docs/roadmap.md`。
+> 未来规划（自定义皮肤、语音控制、设置卡片、图片识别协同）与 STT 选型调研见 `docs/roadmap.md`。
 
 ## 是什么
 

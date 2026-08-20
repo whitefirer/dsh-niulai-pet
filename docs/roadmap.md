@@ -101,3 +101,22 @@ WebGPU 比 WASM 快 5-10 倍但 Safari/Firefox 不行，须自动降级；
 - 浏览器路线选 browser-whisper + whisper-base 混合量化
 - 唤醒词如果要上，openWakeWord（本地、可自定义词）优于 Porcupine（商用授权）
 - TTS 二期若做，Piper（本地）或浏览器 speechSynthesis（零依赖）二选一
+
+## 三、设置卡片（dsh rc.7+ 插件设置页）
+
+dsh rc.7 起插件可自行注册设置卡片（dsh web 设置页内的插件专属区块）。
+现在散在浮层菜单里的开关应迁过去，菜单只留高频操作：
+
+- 候选配置：完成喊妈开关、连喊几声、音量/静音默认、默认皮肤、
+  唠叨气泡频率
+- 配置存哪：沿用 localStorage（纯客户端插件无 host 半状态），
+  设置卡片只是另一张皮，读写同一份键值
+- 注意 rc.7 以下版本没有设置卡片能力，注册失败要静默降级回菜单
+
+## 四、图片识别协同（依赖 browser-fs + dsh rc.8）
+
+dsh rc.8 的 deepseek-official 适配器支持 `inputModalities: [text, image]`
+原生图片请求（含工具结果图片：tool 消息保持纯字符串，图片合并进随后的
+user 消息）。browser-fs 按计划返回 ImageBlock 后，agent 可「读用户手机/
+另一台电脑上的截图 → DeepSeek 原生视觉排障」。本插件侧无需改动，
+仅在此登记联动场景（拍桌宠截图吐槽它自己？）。
