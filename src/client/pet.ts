@@ -340,10 +340,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
    * 妈妈的回应「牛来！」：只放声+气泡，不动嘴（不是宠物在喊）。
    * 时机：连喊接龙放完（循环模式关），或循环喊被互动打断时。
    */
+  /** 回应去重：打断循环的即时回应与喊声尾部的回应不重复（喊开始后回过就不再回）。 */
+  let lastReplyAt = 0
   const playReply = (): void => {
     if (muted || !replyOn || destroyed) return
     const src = cur().replySound
     if (src === undefined) return
+    lastReplyAt = Date.now()
     const audio = new Audio(src)
     void audio.play().catch(() => {})
     const d = soundDur.get(src)
@@ -801,11 +804,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     fireCelebrate()
   }
 
-  /** 只喊不跳（菜单「喊一声」）：嘴部张合与气泡都撑满喊声全长。 */
+  /** 只喊不跳（菜单「喊一声」/戳一下的出声部分）：嘴部张合与气泡都撑满喊声全长，
+   *  喊完妈妈回一句（开关控制；loop 打断已回过的不重复）。 */
   const shout = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
     const ms = playVoice()
-    if (ms > 0) mouthShout(ms)
+    if (ms > 0) {
+      mouthShout(ms)
+      const shoutAt = Date.now()
+      window.setTimeout(() => { if (lastReplyAt < shoutAt) playReply() }, ms)
+    }
     showBubble(cur().shoutBubble === '' ? '！' : cur().shoutBubble, Math.max(1500, ms + 300))
   }
 
