@@ -397,6 +397,28 @@ export class LiveMatcher {
   }
 }
 
+/** 16k 单声道 Float32 → 16bit wav dataurl（自录模板落配置用）。 */
+export function encodeWav16kDataUrl(pcm: Float32Array): string {
+  const n = pcm.length
+  const buf = new ArrayBuffer(44 + n * 2)
+  const v = new DataView(buf)
+  const wstr = (off: number, str: string): void => { for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i)) }
+  wstr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wstr(8, 'WAVE')
+  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, SAMPLE_RATE, true); v.setUint32(28, SAMPLE_RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  wstr(36, 'data'); v.setUint32(40, n * 2, true)
+  for (let i = 0; i < n; i++) {
+    const x = Math.max(-1, Math.min(1, pcm[i]))
+    v.setInt16(44 + i * 2, Math.round(x * 32767), true)
+  }
+  let bin = ''
+  const bytes = new Uint8Array(buf)
+  for (let i = 0; i < bytes.length; i += 8192) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 8192))
+  }
+  return `data:audio/wav;base64,${btoa(bin)}`
+}
+
 // ---- 浏览器薄壳（以下函数体内部才碰浏览器 API，模块顶层不碰）----
 
 export interface VoiceStopOptions {

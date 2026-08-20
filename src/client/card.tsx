@@ -15,7 +15,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
-import { decodeToPcm16k, frameRmsSeries, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
+import { decodeToPcm16k, encodeWav16kDataUrl, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
@@ -43,6 +43,12 @@ const zh = {
   micTestHint: '说句话，电平条应起伏',
   voiceDbgOff: '识别状态：未在听（循环喊进行时才开麦）',
   micTestScore: '喊一声「牛来」：识别得分 {score}（越小越像；连续过阈即中）',
+  micRecord: '录我的「牛来」',
+  micRecording: '录音中…对着麦喊「牛来」',
+  micRecordClear: '清除',
+  micRecordDone: '已录我的模板（优先匹配它）',
+  micRecordNone: '未录时用电音原声模板',
+  micRecordFail: '没录到声音，靠近麦克风再试',
   micTestHit: '识别到「牛来」！',
   voiceThreshold: '识别阈值',
   voiceThresholdHint: '喊「牛来」和别的词各试几次，阈值取两组得分之间（越小越严）',
@@ -90,6 +96,12 @@ const en: Record<keyof typeof zh, string> = {
   micTestHint: 'Say something — the level bar should move',
   voiceDbgOff: 'Voice match: idle (mic opens only while loop-shouting)',
   micTestScore: 'Shout "Niulai!": match score {score} (lower = closer)',
+  micRecord: 'Record my "Niulai!"',
+  micRecording: 'Recording… shout "Niulai!" now',
+  micRecordClear: 'Clear',
+  micRecordDone: 'Custom template recorded (matched first)',
+  micRecordNone: 'falling back to the movie template when absent',
+  micRecordFail: 'Nothing captured — get closer and retry',
   micTestHit: 'Heard "Niulai!"',
   voiceThreshold: 'Match threshold',
   voiceThresholdHint: 'Test both "Niulai" and other words; pick a threshold between the two score ranges (lower = stricter)',
@@ -368,11 +380,22 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
 }
 
 /** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
-function MicTest(props: { deviceId: string; threshold: number; labels: { test: string; stop: string; hint: string; score: string; hit: string } }) {
+function MicTest(props: {
+  deviceId: string
+  threshold: number
+  template: string
+  onTemplate(t: string): void
+  labels: {
+    test: string; stop: string; hint: string; score: string; hit: string
+    record: string; recording: string; clear: string; done: string; none: string; fail: string
+  }
+}) {
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
   const [score, setScore] = useState<number | null>(null)
   const [hit, setHit] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [recFailed, setRecFailed] = useState(false)
   useEffect(() => {
     if (!testing) return
     let stop = false
@@ -397,8 +420,10 @@ function MicTest(props: { deviceId: string; threshold: number; labels: { test: s
       actx = new AC()
       const rate = actx.sampleRate
       // 识别测试与生产同构：同一对模板、同一条 decode→mfcc→谱减→裁剪链
+      const tplSrcs = [props.template !== '' ? props.template : undefined, REPLY_MATCH, REPLY_REF]
+        .filter((x): x is string => x !== undefined)
       const templates: number[][][] = []
-      for (const tpl of [REPLY_MATCH, REPLY_REF]) {
+      for (const tpl of tplSrcs) {
         try {
           const pcm = await decodeToPcm16k(tpl)
           templates.push(trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08))
@@ -433,7 +458,60 @@ function MicTest(props: { deviceId: string; threshold: number; labels: { test: s
       setScore(null)
       setHit(false)
     }
-  }, [testing, props.deviceId, props.threshold])
+  }, [testing, props.deviceId, props.threshold, props.template])
+  const recordTemplate = (): void => {
+    if (recording) return
+    setRecording(true)
+    setRecFailed(false)
+    void (async () => {
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
+        })
+      } catch {
+        setRecording(false)
+        setRecFailed(true)
+        return
+      }
+      const actx = new AudioContext()
+      const rate = actx.sampleRate
+      const chunks: Float32Array[] = []
+      const srcNode = actx.createMediaStreamSource(stream)
+      const proc = actx.createScriptProcessor(4096, 1, 1)
+      proc.onaudioprocess = (e) => { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))) }
+      srcNode.connect(proc)
+      proc.connect(actx.destination)
+      await new Promise((r) => setTimeout(r, 1900))
+      proc.onaudioprocess = null
+      proc.disconnect()
+      srcNode.disconnect()
+      for (const t of stream.getTracks()) t.stop()
+      void actx.close().catch(() => {})
+      const total = chunks.reduce((n, c) => n + c.length, 0)
+      const all = new Float32Array(total)
+      let off = 0
+      for (const c of chunks) { all.set(c, off); off += c.length }
+      const pcm = resampleTo16k(all, rate)
+      // 能量裁首尾（15% 峰值门 + 前后 5 帧气息），再峰值归一到 0.9
+      const rms = frameRmsSeries(pcm)
+      const peak = Math.max(0, ...rms)
+      if (peak < 0.01) { setRecording(false); setRecFailed(true); return }
+      let lo = 0
+      let hi = rms.length - 1
+      while (lo < hi && rms[lo] < peak * 0.15) lo++
+      while (hi > lo && rms[hi] < peak * 0.15) hi--
+      lo = Math.max(0, lo - 5)
+      hi = Math.min(rms.length - 1, hi + 5)
+      const out = pcm.slice(lo * FRAME_STEP, hi * FRAME_STEP + FRAME_LEN)
+      let pk = 0
+      for (const v of out) pk = Math.max(pk, Math.abs(v))
+      if (pk > 0) for (let i = 0; i < out.length; i++) out[i] *= 0.9 / pk
+      props.onTemplate(encodeWav16kDataUrl(out))
+      setRecording(false)
+    })()
+  }
+
   return (
     <div style={{ padding: '2px 0 8px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -462,6 +540,30 @@ function MicTest(props: { deviceId: string; threshold: number; labels: { test: s
           </div>
         )
         : null}
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          disabled={recording}
+          style={{
+            font: 'inherit', fontSize: 12, padding: '3px 12px', borderRadius: 7,
+            cursor: recording ? 'default' : 'pointer', opacity: recording ? 0.5 : 1,
+            border: `1px solid ${colors.border}`, background: 'none', color: colors.labelPrimary,
+          }}
+          onClick={recordTemplate}
+        >{recording ? props.labels.recording : props.labels.record}</button>
+        {props.template !== '' && !recording
+          ? (
+            <button
+              type="button"
+              style={{ font: 'inherit', fontSize: 12, padding: '3px 10px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${colors.border}`, background: 'none', color: colors.labelTertiary }}
+              onClick={() => { props.onTemplate('') }}
+            >{props.labels.clear}</button>
+          )
+          : null}
+        <span style={{ fontSize: 11, color: recFailed ? 'var(--dsw-alias-state-error-primary, #ef4444)' : colors.labelTertiary }}>
+          {recording ? '' : recFailed ? props.labels.fail : props.template !== '' ? props.labels.done : props.labels.none}
+        </span>
+      </div>
     </div>
   )
 }
@@ -588,7 +690,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
-                  <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit') }} />
+                  <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
+                    onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
+                    labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail') }} />
                   <Row label={t('voiceThreshold')}>
                     <NumberField value={cfg.voiceThreshold} min={0.3} max={0.85} float disabled={disabled} label={t('voiceThreshold')}
                       onCommit={(n) => { props.set({ voiceThreshold: n }) }} />

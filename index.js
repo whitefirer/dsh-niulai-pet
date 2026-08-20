@@ -66,6 +66,9 @@ export const Config = z.object({
   /** 识别阈值（越小越严）：默认 0.52；真机「喊牛来/喊别的得分差不多」时，
    *  用卡片里的测试看两边得分，把阈值调到两组得分之间。 */
   voiceThreshold: z.number().min(0.3).max(0.85).default(0.52),
+  /** 用户自录「牛来」模板（16k mono wav 的 dataurl，空=没录）。
+   *  自录模板对本人嗓音匹配远强于电影录音，是跨说话人场景的终极解法。 */
+  voiceTemplate: z.string().default(''),
 })
 
 /**

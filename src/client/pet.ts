@@ -219,6 +219,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
   let voiceThreshold = initCfg.voiceThreshold
+  let voiceTemplate = initCfg.voiceTemplate
   let mood: Mood = 'idle'
   let destroyed = false
   let busyInfo: { since: number; label: string } | null = null
@@ -783,7 +784,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (voice !== null || voiceStarting) return
     voiceStarting = true
     const handle = startVoiceStop({
-      templateSrcs: () => [REPLY_MATCH, REPLY_REF],
+      // 自录模板排最前（本人嗓音匹配最强），两个电影模板兜底
+      templateSrcs: () => [voiceTemplate === '' ? undefined : voiceTemplate, REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
       threshold: () => voiceThreshold,
       onMatch: () => {
@@ -1041,10 +1043,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
     voiceControlOn = c.voiceControl
-    if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold) {
-      // 换麦克风/调阈值：正在听就重启监听用上新值
+    if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate) {
+      // 换麦克风/调阈值/换模板：正在听就重启监听用上新值
       micDeviceId = c.micDeviceId
       voiceThreshold = c.voiceThreshold
+      voiceTemplate = c.voiceTemplate
       if (voice !== null) { voice.stop(); voice = null }
       syncVoice()
     }

@@ -54,6 +54,8 @@ export interface PetConfig {
   micDeviceId: string
   /** 识别阈值（越小越严，0.3-0.85）。 */
   voiceThreshold: number
+  /** 用户自录「牛来」模板（wav dataurl，空=没录）。 */
+  voiceTemplate: string
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -75,6 +77,7 @@ export interface Persisted {
   voiceControl?: boolean
   micDeviceId?: string
   voiceThreshold?: number
+  voiceTemplate?: string
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -248,7 +251,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold'] as const) {
+    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -311,6 +314,8 @@ export class ConfigStore {
       micDeviceId: typeof p.micDeviceId === 'string' ? p.micDeviceId : '',
       voiceThreshold: typeof p.voiceThreshold === 'number' && p.voiceThreshold >= 0.3 && p.voiceThreshold <= 0.85
         ? p.voiceThreshold : 0.52,
+      voiceTemplate: typeof p.voiceTemplate === 'string' && p.voiceTemplate.startsWith('data:audio/') && p.voiceTemplate.length < 300_000
+        ? p.voiceTemplate : '',
     }
   }
 
@@ -331,6 +336,7 @@ export class ConfigStore {
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
       voiceThreshold: typeof r.voiceThreshold === 'number' ? r.voiceThreshold : undefined,
+      voiceTemplate: typeof r.voiceTemplate === 'string' ? r.voiceTemplate : undefined,
     })
   }
 
