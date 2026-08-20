@@ -195,11 +195,15 @@ const selectStyle = (disabled: boolean): React.CSSProperties => ({
 })
 
 /**
- * 下拉展开列表是原生控件：背景随系统/浏览器主题走（浅色主题下是白底），
- * 而 option 文字默认继承 select 的浅色前景 → 白字白底看不见。钉死
- * 「深字浅底」，两种主题下展开列表都可读（闭合态仍用主题色，不受影响）。
+ * 下拉展开列表是原生控件：背景随系统/浏览器主题走，而 option 文字默认继承
+ * select 的前景 → 主题不匹配时白字白底看不见。option 跟随 dsh 主题令牌
+ * （亮色/暗色主题各自定义了这组值，自定义属性可继承进 option），
+ * 无令牌环境（demo 页）回退深字浅底。
  */
-const optionStyle: React.CSSProperties = { color: '#18181b', backgroundColor: '#fff' }
+const optionStyle: React.CSSProperties = {
+  color: 'var(--dsw-alias-label-primary, #18181b)',
+  backgroundColor: 'var(--dsw-alias-bg-layer-2, #fff)',
+}
 
 function Row(props: { label: string; children: React.ReactNode }) {
   return (
