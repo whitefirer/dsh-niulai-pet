@@ -208,6 +208,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
   let shoutOnDone = initCfg.shoutOnDone
   let talkative = initCfg.talkative
   let shoutCount = initCfg.shoutCount
+  let doneDelaySec = initCfg.doneDelaySec
+  let shoutLoopOn = initCfg.shoutLoop
   let mood: Mood = 'idle'
   let destroyed = false
   let busySince: number | null = null
@@ -714,10 +716,31 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
 
   // ---- 触发 ----
   let lastCelebrate = 0
-  const celebrate = (): void => {
-    const now = Date.now()
-    if (now - lastCelebrate < 6000 || mood === 'drag' || mood === 'fly' || destroyed) return
-    lastCelebrate = now
+  // 循环喊（shoutLoop）：完成后每隔 ~2.4s+喊声全长 再喊一声，直到互动停止
+  // （戳/拖/新任务开始/静音或开关关闭）；60 声兜底自停，防忘关叫一宿。
+  let shoutLoopTimer = 0
+  let shoutLoopLeft = 0
+  const stopShoutLoop = (): void => {
+    window.clearTimeout(shoutLoopTimer)
+    shoutLoopTimer = 0
+    shoutLoopLeft = 0
+  }
+  const shoutLoopTick = (): void => {
+    shoutLoopTimer = 0
+    if (destroyed || !shoutLoopOn || muted || shoutLoopLeft <= 0 || mood === 'drag' || mood === 'fly') {
+      stopShoutLoop()
+      return
+    }
+    shoutLoopLeft--
+    const ms = playVoice()
+    if (ms > 0) mouthShout(ms)
+    const text = cur().shoutBubble
+    showBubble(text === '' ? '！' : text, Math.max(1500, ms + 300))
+    shoutLoopTimer = window.setTimeout(shoutLoopTick, Math.max(ms, 600) + 2400)
+  }
+
+  const fireCelebrate = (): void => {
+    if (destroyed) return
     if (shoutOnDone && !muted) {
       // 连喊 N 声串行接龙：一声放完接下声；每声「开-合-开-保持」，声止嘴合
       const chain = (n: number): void => {
@@ -731,8 +754,26 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       chain(shoutCount)
       const text = cur().shoutBubble
       showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
+      // 接龙放完再进入循环（留一口气）
+      if (shoutLoopOn) {
+        shoutLoopLeft = 60
+        shoutLoopTimer = window.setTimeout(shoutLoopTick, shoutCount * 2600 + 1600)
+      }
     }
     runAction(doneAction()) // 安静模式也照做动作，只是没声没气泡
+  }
+
+  const celebrate = (): void => {
+    const now = Date.now()
+    if (now - lastCelebrate < 6000 || mood === 'drag' || mood === 'fly' || destroyed) return
+    lastCelebrate = now
+    stopShoutLoop() // 新一轮完成顶掉上一轮未停的循环
+    const delayMs = doneDelaySec * 1000
+    if (delayMs > 0) {
+      window.setTimeout(() => { if (!destroyed) fireCelebrate() }, delayMs)
+      return
+    }
+    fireCelebrate()
   }
 
   /** 只喊不跳（菜单「喊一声」）：嘴部张合与气泡都撑满喊声全长。 */
@@ -743,9 +784,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     showBubble(cur().shoutBubble === '' ? '！' : cur().shoutBubble, Math.max(1500, ms + 300))
   }
 
-  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳。 */
+  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
+    stopShoutLoop()
     shout()
     runAction(pokeAction())
   }
@@ -764,6 +806,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     if (menu.contains(ev.target as Node) || about.contains(ev.target as Node)) return
     dragging = false
     downAt = performance.now()
+    stopShoutLoop() // 任意上手互动（含拖拽与点击预备）都停循环喊
     dragStartX = ev.clientX
     dragStartY = ev.clientY
     petStartX = x
@@ -889,6 +932,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     shoutOnDone = c.shoutOnDone
     talkative = c.talkative
     shoutCount = c.shoutCount
+    doneDelaySec = c.doneDelaySec
+    shoutLoopOn = c.shoutLoop
+    if (muted || !shoutLoopOn) stopShoutLoop() // 静音/关循环立即生效
     const next = findSkin(c.skin)
     if (next !== skin) {
       skin = next
@@ -906,6 +952,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
     poke,
     setBusy(since) {
       busySince = since
+      if (since !== null) stopShoutLoop() // 新任务开跑：别再喊了
     },
     setMuted(m) {
       config.set({ muted: m })
@@ -919,6 +966,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore): PetHandle {
       keeper.disconnect()
       window.clearTimeout(behaveTimer)
       window.clearTimeout(chatterTimer)
+      window.clearTimeout(shoutLoopTimer)
       window.clearTimeout(bubbleTimer)
       window.clearTimeout(blinkTimer)
       window.clearTimeout(blinkResetTimer)

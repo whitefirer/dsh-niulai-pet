@@ -43,7 +43,7 @@ code as a standalone page, with a simulated task driver for celebrations.
 | Click (poke) | shouts once + bound action |
 | Drag | carried along, lands with a bounce; position persisted (localStorage) |
 | Right-click | menu: sound / shout-on-done / chatter toggle pills, shout repeat (1–3),<br>action bindings, skin picker, fly-by, shout, about |
-| Task done | voice line (repeatable) + bubble + mouth timeline (open-close-open, held through<br>the tail note) + bound action (6s throttle) |
+| Task done | voice line (repeatable, or looped until touched) + bubble + mouth timeline<br>(open-close-open, held through the tail note) + bound action (6s throttle, configurable delay) |
 
 Action library: fly (upward arc), dance, spin, triple hop, roll, breach, cow-sway.
 Any skin can bind any action; "signature" follows the current skin, "random" picks live.
@@ -59,8 +59,11 @@ degrades to manual interaction only.
 ## Settings card (dsh rc.7+)
 
 Since rc.7, Settings → Plugins → Plugin configuration hosts the "Niulai Pet" card:
-sound / shout-on-done / shout repeats (1–3) / chatter bubbles / skin picker /
-done & poke action dropdowns (editing the current skin's bindings). The card and the
+sound / shout-on-done / shout repeats (1–3) / done delay (0–120s) / loop-shout-until-
+touched / chatter bubbles / chatter lines (one per line; non-empty replaces the
+built-in shared pool) / skin picker / done & poke action dropdowns (editing the
+current skin's bindings). The shout loop stops on poke, drag, a new session start,
+mute, or flipping the switch off, with a 60-shout safety cap. The card and the
 pet's right-click menu read and write the same configuration — change either side and
 the other reflects it immediately. Persistence is owned by the dsh host
 (`~/.dsh/settings.yaml`, shared across browsers). Legacy localStorage preferences are

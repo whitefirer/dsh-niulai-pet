@@ -27,6 +27,8 @@ const zh = {
   sound: '声音',
   shoutOnDone: '完成时喊',
   shoutCount: '完成连喊',
+  doneDelay: '完成延迟（秒）',
+  shoutLoop: '循环喊到互动停止',
   talkative: '气泡唠叨',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
@@ -53,6 +55,8 @@ const en: Record<keyof typeof zh, string> = {
   sound: 'Sound',
   shoutOnDone: 'Shout on task done',
   shoutCount: 'Shout repeats',
+  doneDelay: 'Done delay (s)',
+  shoutLoop: 'Loop shout until touched',
   talkative: 'Chatter bubbles',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
@@ -221,6 +225,38 @@ function Row(props: { label: string; children: React.ReactNode }) {
   )
 }
 
+/** 整数输入（0-120 这类范围大的，步进器要点几十下不现实）：本地草稿 + blur/Enter 提交并夹取。 */
+function NumberField(props: { value: number; min: number; max: number; disabled: boolean; label: string; onCommit(n: number): void }) {
+  const [draft, setDraft] = useState(String(props.value))
+  const [focused, setFocused] = useState(false)
+  if (!focused && draft !== String(props.value)) setDraft(String(props.value))
+  const commit = (): void => {
+    const n = Math.round(Number(draft))
+    if (!Number.isFinite(n)) { setDraft(String(props.value)); return }
+    props.onCommit(Math.min(props.max, Math.max(props.min, n)))
+  }
+  return (
+    <input
+      type="number"
+      min={props.min}
+      max={props.max}
+      step={1}
+      aria-label={props.label}
+      style={{
+        width: 72, font: 'inherit', fontSize: 13, padding: '4px 10px', borderRadius: 8,
+        border: `1px solid ${colors.border}`, background: 'transparent',
+        color: colors.labelPrimary, opacity: props.disabled ? 0.4 : 1,
+      }}
+      value={draft}
+      disabled={props.disabled}
+      onFocus={() => { setFocused(true) }}
+      onBlur={() => { setFocused(false); commit() }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      onChange={(e) => { setDraft(e.target.value) }}
+    />
+  )
+}
+
 /**
  * 语录编辑：本地草稿 + blur 提交（逐键入直接 scope.set 会把半个句子落盘，
  * 且每键一次 RPC）。外部变更（菜单端/另一设备）在非聚焦时同步进草稿。
@@ -300,6 +336,13 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('shoutCount')}>
               <Stepper value={cfg.shoutCount} min={1} max={3} disabled={disabled} label={t('shoutCount')} onChange={(n) => { props.set({ shoutCount: n }) }} />
+            </Row>
+            <Row label={t('doneDelay')}>
+              <NumberField value={cfg.doneDelaySec} min={0} max={120} disabled={disabled} label={t('doneDelay')}
+                onCommit={(n) => { props.set({ doneDelaySec: n }) }} />
+            </Row>
+            <Row label={t('shoutLoop')}>
+              <Switch on={cfg.shoutLoop} disabled={disabled} label={t('shoutLoop')} onChange={(on) => { props.set({ shoutLoop: on }) }} />
             </Row>
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />

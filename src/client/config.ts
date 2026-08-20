@@ -42,6 +42,10 @@ export interface PetConfig {
   actions: Record<string, SkinActionBinding>
   /** 自定义唠叨语录（空 = 用内置通用池；非空时替换它，皮肤专属语录仍并入）。 */
   quips: string[]
+  /** 完成动作延迟秒数（0 = 立即）。 */
+  doneDelaySec: number
+  /** 完成后循环喊直到互动停止。 */
+  shoutLoop: boolean
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -57,6 +61,8 @@ export interface Persisted {
   shoutCount?: number
   actions?: Record<string, SkinActionBinding>
   quips?: string[]
+  doneDelaySec?: number
+  shoutLoop?: boolean
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -221,7 +227,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips'] as const) {
+    for (const field of ['muted', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -271,6 +277,9 @@ export class ConfigStore {
       skin: this.validSkin(p.skin),
       actions: this.sanitizeActions(p.actions),
       quips: sanitizeQuips(p.quips),
+      doneDelaySec: typeof p.doneDelaySec === 'number' && Number.isInteger(p.doneDelaySec)
+        ? Math.min(120, Math.max(0, p.doneDelaySec)) : 0,
+      shoutLoop: p.shoutLoop === true,
     }
   }
 
@@ -285,6 +294,8 @@ export class ConfigStore {
       skin: typeof r.skin === 'string' ? r.skin : undefined,
       actions: isRecord(r.actions) ? r.actions as Record<string, SkinActionBinding> : undefined,
       quips: Array.isArray(r.quips) ? r.quips as string[] : undefined,
+      doneDelaySec: typeof r.doneDelaySec === 'number' ? r.doneDelaySec : undefined,
+      shoutLoop: r.shoutLoop === true,
     })
   }
 

@@ -53,6 +53,10 @@ export const Config = z.object({
   actions: z.dict(z.object({ done: Action.default('signature'), poke: Action.default('hops') })).default({}),
   /** 自定义唠叨语录（空 = 用内置通用池；非空时替换内置通用池，皮肤专属语录不受影响）。 */
   quips: z.array(z.string()).default([]),
+  /** 完成动作延迟秒数（0 = 立即，上限 120）。 */
+  doneDelaySec: z.number().step(1).min(0).max(120).default(0),
+  /** 完成后循环喊直到互动停止（戳/拖/新任务开始/静音或本开关关闭；60 声兜底自停）。 */
+  shoutLoop: z.boolean().default(false),
 })
 
 /**
