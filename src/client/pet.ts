@@ -837,6 +837,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         voiceDebug?.publish({ matchedAt: Date.now(), listening: false })
         cutPlayingShout() // 用户已应声：当场掐断在播的「妈妈」和剩余连喊
         stopShoutLoop(false, '语音命中')
+        // 噤声一幕：嘘——（不播录音：妈妈那句是用户亲口喊的）
+        showBubble('🤫 嘘——', 2000)
+        if (mood === 'idle') void hop(26, 300)
       },
       // 报分节流：评估每 50ms 一次，卡片状态行 300ms 一刷足够
       onScore: (score) => {
