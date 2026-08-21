@@ -15,7 +15,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
-import { decodeToPcm16k, encodeWav16kDataUrl, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
+import { decodeToPcm16k, encodeWav16kDataUrl, applySoftGain, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
 import { createKwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey } from './kws.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
@@ -48,6 +48,8 @@ const zh = {
   voiceDenied: '麦克风授权被拒——若在 cenacle 内嵌窗口里，请换独立标签页打开 dsh 再开',
   voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
   micDevice: '麦克风设备',
+  micGain: '麦克风增益',
+  micGainHint: '声音小识别不到时调大（浏览器自动增益已开，这里再叠加软件增益，软削波防爆音；正式监听热生效）',
   micDefault: '系统默认',
   micTest: '测试',
   micTestStop: '停止',
@@ -111,6 +113,8 @@ const en: Record<keyof typeof zh, string> = {
   voiceDenied: 'Microphone permission denied — if inside an embedded (cenacle) window, open dsh in its own tab and retry',
   voiceNoMic: 'No microphone device detected; voice stop stays off',
   micDevice: 'Microphone',
+  micGain: 'Mic gain',
+  micGainHint: 'Turn up when your voice is too quiet to be recognized (browser AGC is already on; this stacks software gain with soft clipping — applies live to active listening)',
   micDefault: 'System default',
   micTest: 'Test',
   micTestStop: 'Stop',
@@ -354,6 +358,36 @@ function VolumeField(props: { value: number; disabled: boolean; label: string; o
   )
 }
 
+/** 麦克风增益滑杆（1.0-4.0×，松手提交；样式同 VolumeField，标签 ×N.N）。 */
+function MicGainField(props: { value: number; disabled: boolean; label: string; onCommit(n: number): void }) {
+  const [draft, setDraft] = useState(props.value)
+  const [dragging, setDragging] = useState(false)
+  if (!dragging && draft !== props.value) setDraft(props.value)
+  const commit = (): void => {
+    setDragging(false)
+    if (draft !== props.value) props.onCommit(draft)
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+      <input
+        type="range"
+        min={1}
+        max={4}
+        step={0.1}
+        aria-label={props.label}
+        disabled={props.disabled}
+        value={draft}
+        style={{ width: 110, accentColor: 'var(--dsw-alias-brand-primary, #3b82f6)', opacity: props.disabled ? 0.4 : 1 }}
+        onChange={(e) => { setDragging(true); setDraft(Number(e.target.value)) }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 30, textAlign: 'right' }}>×{draft.toFixed(1)}</span>
+    </span>
+  )
+}
+
 /**
  * 语录编辑：本地草稿 + blur 提交（逐键入直接 scope.set 会把半个句子落盘，
  * 且每键一次 RPC）。外部变更（菜单端/另一设备）在非聚焦时同步进草稿。
@@ -419,6 +453,7 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
 /** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
 function MicTest(props: {
   deviceId: string
+  micGain: number
   engine: 'kws' | 'template'
   keywords: string[]
   threshold: number
@@ -452,7 +487,7 @@ function MicTest(props: {
       let s: MediaStream
       try {
         s = await navigator.mediaDevices.getUserMedia({
-          audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
+          audio: { autoGainControl: true, ...(props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : {}) },
         })
       } catch {
         setTesting(false)
@@ -511,14 +546,16 @@ function MicTest(props: {
       proc.onaudioprocess = (e) => {
         if (stop) return
         const ch = e.inputBuffer.getChannelData(0)
+        // 电平与识别都走增益后信号（显示的就是识别器听到的）
+        const gained = applySoftGain(resampleTo16k(ch, rate), props.micGain)
         let acc = 0
-        for (let i = 0; i < ch.length; i++) acc += ch[i] * ch[i]
+        for (let i = 0; i < gained.length; i++) acc += gained[i] * gained[i]
         const now = Date.now()
         if (now - lastLevelAt > 80) {
           lastLevelAt = now
-          setLevel(Math.min(1, Math.sqrt(acc / ch.length) * 4)) // RMS ×4 视觉增益
+          setLevel(Math.min(1, Math.sqrt(acc / gained.length) * 4)) // RMS ×4 视觉增益
         }
-        try { matcher?.feed(resampleTo16k(ch, rate)) } catch { /* 单帧异常不挡 */ }
+        try { matcher?.feed(gained) } catch { /* 单帧异常不挡 */ }
       }
       srcNode.connect(proc)
       proc.connect(actx.destination) // 不写输出，只为让 ScriptProcessor 跑起来
@@ -536,7 +573,7 @@ function MicTest(props: {
       setHitKw(null)
       setKwsPhase(null)
     }
-  }, [testing, props.deviceId, props.threshold, props.template, props.engine, keywordsDep])
+  }, [testing, props.deviceId, props.threshold, props.template, props.engine, props.micGain, keywordsDep])
   const recordTemplate = (): void => {
     if (recording) return
     setRecording(true)
@@ -545,7 +582,7 @@ function MicTest(props: {
       let stream: MediaStream
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : true,
+          audio: { autoGainControl: true, ...(props.deviceId !== '' ? { deviceId: { exact: props.deviceId } } : {}) },
         })
       } catch {
         setRecording(false)
@@ -570,7 +607,7 @@ function MicTest(props: {
       const all = new Float32Array(total)
       let off = 0
       for (const c of chunks) { all.set(c, off); off += c.length }
-      const pcm = resampleTo16k(all, rate)
+      const pcm = applySoftGain(resampleTo16k(all, rate), props.micGain) // 模板与正式监听同管线（增益一致）
       // 能量裁首尾（15% 峰值门 + 前后 5 帧气息），再峰值归一到 0.9
       const rms = frameRmsSeries(pcm)
       const peak = Math.max(0, ...rms)
@@ -674,7 +711,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
       props.set({ voiceControl: false })
       return
     }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(
+    navigator.mediaDevices.getUserMedia({ audio: { autoGainControl: true } }).then(
       (stream) => {
         for (const track of stream.getTracks()) track.stop()
         setVoiceIssue(null)
@@ -794,6 +831,10 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
+                  <Row label={t('micGain')}>
+                    <MicGainField value={cfg.micGain} disabled={disabled} label={t('micGain')} onCommit={(n) => { props.set({ micGain: n }) }} />
+                  </Row>
+                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('micGainHint')}</div>
                   {cfg.voiceEngine === 'kws'
                     ? (
                       <Row label={t('voiceKeywords')}>
@@ -820,7 +861,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       </Row>
                     )
                     : null}
-                  <MicTest deviceId={cfg.micDeviceId} engine={cfg.voiceEngine} keywords={cfg.voiceKeywords} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
+                  <MicTest deviceId={cfg.micDeviceId} micGain={cfg.micGain} engine={cfg.voiceEngine} keywords={cfg.voiceKeywords} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
                     onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
                     labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail'), kwsLoading: t('micKwsLoading'), kwsListening: t('micKwsListening'), kwsFailed: t('micKwsFailed'), hitKw: t('micTestHitKw', { keyword: '{keyword}' }) }} />
                   {cfg.voiceEngine === 'template'

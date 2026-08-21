@@ -456,6 +456,9 @@ export interface VoiceStopOptions {
   micDeviceId?(): string
   /** 识别阈值（默认 VOICE_MATCH_THRESHOLD；用户可配）。 */
   threshold?(): number
+  /** 软件增益 1.0-4.0（默认 1=直通；喂识别前 tanh 软削波放大，逐块读取——
+   *  卡片调增益热生效，不用重启监听）。 */
+  micGain?(): number
   /** 命中回调（pet 接线 stopShoutLoop(false)：用户已亲自喊「牛来」，不再播妈妈录音）。 */
   onMatch(): void
   /** 每次评估报分（调试用：卡片状态行显示「识别到什么程度了」）。 */
@@ -499,6 +502,15 @@ export function resampleTo16k(pcm: Float32Array, fromRate: number): Float32Array
     const b = i0 + 1 < pcm.length ? pcm[i0 + 1] : a
     out[i] = a + (b - a) * frac
   }
+  return out
+}
+
+/** 软件增益：tanh 软削波——小信号近似线性放大，大信号平滑饱和
+ *  （不会像硬放大那样削顶爆音）。gain<=1 原样返回（零失真直通）。 */
+export function applySoftGain(pcm: Float32Array, gain: number): Float32Array {
+  if (gain <= 1) return pcm
+  const out = new Float32Array(pcm.length)
+  for (let i = 0; i < pcm.length; i++) out[i] = Math.tanh(gain * pcm[i])
   return out
 }
 
@@ -571,6 +583,8 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
     const wantDevice = opts.micDeviceId?.() ?? ''
     const audioConstraint = (deviceId: string): MediaTrackConstraints => ({
       channelCount: 1, echoCancellation: true, noiseSuppression: true,
+      // 浏览器硬件级 AGC：小声自动放大（真机反馈"音量小识别不到"的大头解法）
+      autoGainControl: true,
       ...(deviceId !== '' ? { deviceId: { exact: deviceId } } : {}),
     })
     try {
@@ -604,7 +618,8 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       proc.onaudioprocess = (e) => {
         if (stopped) return
         try {
-          live.feed(resampleTo16k(e.inputBuffer.getChannelData(0), rate))
+          // 逐块读增益：卡片调增益热生效（tanh 软削波，小声放大不破音）
+          live.feed(applySoftGain(resampleTo16k(e.inputBuffer.getChannelData(0), rate), opts.micGain?.() ?? 1))
         } catch (err) {
           opts.onError?.(err)
         }

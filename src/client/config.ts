@@ -63,6 +63,8 @@ export interface PetConfig {
   voiceEngine: 'kws' | 'template'
   /** kws 引擎的指令词（预设 id 列表，喊任一即停；至少一个）。 */
   voiceKeywords: string[]
+  /** 麦克风软件增益（1.0-4.0，默认 1=直通；浏览器 AGC 之外再叠加，tanh 软削波）。 */
+  micGain: number
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -88,6 +90,7 @@ export interface Persisted {
   voiceTemplate?: string
   voiceEngine?: 'kws' | 'template'
   voiceKeywords?: string[]
+  micGain?: number
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -269,7 +272,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -339,6 +342,7 @@ export class ConfigStore {
         ? p.voiceTemplate : '',
       voiceEngine: p.voiceEngine === 'template' ? 'template' : 'kws',
       voiceKeywords: sanitizeKeywords(p.voiceKeywords),
+      micGain: typeof p.micGain === 'number' && p.micGain >= 1 && p.micGain <= 4 ? p.micGain : 1,
     }
   }
 
@@ -363,6 +367,7 @@ export class ConfigStore {
       voiceTemplate: typeof r.voiceTemplate === 'string' ? r.voiceTemplate : undefined,
       voiceEngine: r.voiceEngine === 'template' ? 'template' : r.voiceEngine === 'kws' ? 'kws' : undefined,
       voiceKeywords: Array.isArray(r.voiceKeywords) ? r.voiceKeywords as string[] : undefined,
+      micGain: typeof r.micGain === 'number' ? r.micGain : undefined,
     })
   }
 

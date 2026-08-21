@@ -238,6 +238,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let voiceTemplate = initCfg.voiceTemplate
   let voiceEngine = initCfg.voiceEngine
   let voiceKeywords = initCfg.voiceKeywords
+  let micGain = initCfg.micGain
   let mood: Mood = 'idle'
   let destroyed = false
   let busyInfo: { since: number; label: string } | null = null
@@ -843,6 +844,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 自录模板排最前（本人嗓音匹配最强），两个电影模板兜底
       templateSrcs: () => [voiceTemplate === '' ? undefined : voiceTemplate, REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
+      micGain: () => micGain,
       threshold: () => voiceThreshold,
       onMatch: () => {
         voiceDebug?.publish({ matchedAt: Date.now(), listening: false })
@@ -1121,6 +1123,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     replyOn = c.replyNiulai
     masterVolume = c.volume
     voiceControlOn = c.voiceControl
+    micGain = c.micGain // 增益不进重启 diff：voice 馈送路径逐块读，热生效
     if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate || c.voiceEngine !== voiceEngine
       || JSON.stringify(c.voiceKeywords) !== JSON.stringify(voiceKeywords)) {
       // 换麦克风/调阈值/换模板/换引擎/改指令词：正在听就重启监听用上新值

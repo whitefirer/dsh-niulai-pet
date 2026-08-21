@@ -114,6 +114,9 @@ stops. No recorded reply plays on a voice stop — you just played mom's part yo
   browser's native permission prompt); the setting is only written after a grant.
   On denial the switch flips back off with a notice. A status line shows
   "not granted / granted / unavailable".
+- **Voice too quiet to be recognized**: turn up "Mic gain" in the card (browser AGC
+  is already on; this stacks 1.0–4.0× software gain with soft clipping — applies
+  live, no restart needed).
 - The template engine's discrimination is calibrated offline in `test/voice-matcher.mts`:
   positives (the template plus pitch/tempo/noise perturbations) score ≈0.43 at most,
   below the 0.54 threshold; negatives (the pet's own "mama" shouts, silence, white

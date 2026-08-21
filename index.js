@@ -125,6 +125,9 @@ export const Config = z.object({
   /** kws 引擎的指令词（预设 id 列表，喊任一即停；可选值见 client 半 kws.ts 的
    *  KWS_KEYWORD_PRESETS，至少一个）。模板引擎无此概念（模板是什么词就认什么词）。 */
   voiceKeywords: z.array(z.string()).default(['niulai']),
+  /** 麦克风软件增益 1.0-4.0（默认 1=直通；浏览器 autoGainControl 之外叠加，
+   *  tanh 软削波防爆音——真机"声音小识别不到"时调大）。 */
+  micGain: z.number().min(1).max(4).default(1),
 })
 
 /**
