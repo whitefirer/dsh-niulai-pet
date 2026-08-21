@@ -16,6 +16,7 @@ import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
 import { decodeToPcm16k, encodeWav16kDataUrl, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
+import { KwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey, loadKwsRuntime } from './kws.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
@@ -38,6 +39,11 @@ const zh = {
   voiceEngineKws: '模型识别（推荐，更准）',
   voiceEngineTemplate: '模板匹配（零下载）',
   voiceEngineHint: '模型引擎首次启用需加载约 17MB 模型（同源伺服 + 浏览器缓存，之后秒开）；加载失败自动回落模板匹配',
+  voiceKeywords: '指令词（喊任一即停）',
+  micKwsLoading: '模型加载中（首次约 17MB）…',
+  micKwsListening: '识别中…喊指令词试试',
+  micKwsFailed: '模型加载失败——正式监听会自动回落模板匹配',
+  micTestHitKw: '识别到「{keyword}」！',
   voiceUnsupported: '当前访问方式不支持麦克风（需 https 或 localhost 打开）',
   voiceDenied: '麦克风授权被拒——若在 cenacle 内嵌窗口里，请换独立标签页打开 dsh 再开',
   voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
@@ -96,6 +102,11 @@ const en: Record<keyof typeof zh, string> = {
   voiceEngineKws: 'Model (recommended, more accurate)',
   voiceEngineTemplate: 'Template (zero download)',
   voiceEngineHint: 'The model engine loads ~17MB on first use (served same-origin, then cached by the browser); falls back to template matching if loading fails',
+  voiceKeywords: 'Wake words (any match stops)',
+  micKwsLoading: 'Loading model (~17MB first time)…',
+  micKwsListening: 'Listening… shout a wake word',
+  micKwsFailed: 'Model failed to load — live listening falls back to template matching',
+  micTestHitKw: 'Heard "{keyword}"!',
   voiceUnsupported: 'Microphone is unavailable on this origin (needs https or localhost)',
   voiceDenied: 'Microphone permission denied — if inside an embedded (cenacle) window, open dsh in its own tab and retry',
   voiceNoMic: 'No microphone device detected; voice stop stays off',
@@ -408,20 +419,26 @@ function useMicDevices(active: boolean): Array<{ deviceId: string; label: string
 /** 麦克风电平测试：开测后 RMS 电平条实时起伏；关测/换设备/卸载即停流。 */
 function MicTest(props: {
   deviceId: string
+  engine: 'kws' | 'template'
+  keywords: string[]
   threshold: number
   template: string
   onTemplate(t: string): void
   labels: {
     test: string; stop: string; hint: string; score: string; hit: string
     record: string; recording: string; clear: string; done: string; none: string; fail: string
+    kwsLoading: string; kwsListening: string; kwsFailed: string; hitKw: string
   }
 }) {
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
   const [score, setScore] = useState<number | null>(null)
   const [hit, setHit] = useState(false)
+  const [hitKw, setHitKw] = useState<string | null>(null)
+  const [kwsPhase, setKwsPhase] = useState<'loading' | 'listening' | 'failed' | null>(null)
   const [recording, setRecording] = useState(false)
   const [recFailed, setRecFailed] = useState(false)
+  const keywordsDep = JSON.stringify(props.keywords)
   useEffect(() => {
     if (!testing) return
     let stop = false
@@ -429,6 +446,8 @@ function MicTest(props: {
     let actx: AudioContext | null = null
     let proc: ScriptProcessorNode | null = null
     let lastLevelAt = 0
+    let matcher: { feed(chunk: Float32Array): void; destroy?(): void } | null = null
+    let rearmTimer = 0
     void (async () => {
       let s: MediaStream
       try {
@@ -445,19 +464,45 @@ function MicTest(props: {
       if (AC === undefined) { setTesting(false); return }
       actx = new AC()
       const rate = actx.sampleRate
-      // 识别测试与生产同构：同一对模板、同一条 decode→mfcc→谱减→裁剪链
-      const tplSrcs = [props.template !== '' ? props.template : undefined, REPLY_MATCH, REPLY_REF]
-        .filter((x): x is string => x !== undefined)
-      const templates: number[][][] = []
-      for (const tpl of tplSrcs) {
+      if (props.engine === 'kws') {
+        // KWS 真实识别测试：与生产同一条 loadKwsRuntime + KwsMatcher 链
+        // （KWS 实例跨测试/生产共享单例，这里只开自己的 stream，绝不 free 实例）
+        setKwsPhase('loading')
         try {
-          const pcm = await decodeToPcm16k(tpl)
-          templates.push(trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08))
-        } catch { /* 模板解码失败则只做电平 */ }
+          const kws = await loadKwsRuntime(kwsKeywordsKey(props.keywords))
+          if (stop) return
+          const arm = (): void => {
+            matcher = new KwsMatcher(kws, (kw) => {
+              setHitKw(kwsKeywordLabel(kw))
+              // 命中后 1.2s 重新布防：同一声不重复触发，用户可接着再喊
+              rearmTimer = window.setTimeout(() => {
+                if (stop) return
+                matcher?.destroy?.()
+                setHitKw(null)
+                arm()
+              }, 1200)
+            })
+          }
+          arm()
+          setKwsPhase('listening')
+        } catch {
+          setKwsPhase('failed')
+        }
+      } else {
+        // 识别测试与生产同构：同一对模板、同一条 decode→mfcc→谱减→裁剪链
+        const tplSrcs = [props.template !== '' ? props.template : undefined, REPLY_MATCH, REPLY_REF]
+          .filter((x): x is string => x !== undefined)
+        const templates: number[][][] = []
+        for (const tpl of tplSrcs) {
+          try {
+            const pcm = await decodeToPcm16k(tpl)
+            templates.push(trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08))
+          } catch { /* 模板解码失败则只做电平 */ }
+        }
+        matcher = templates.length > 0
+          ? new LiveMatcher(templates, () => { setHit(true) }, props.threshold, (sc) => { setScore(sc) })
+          : null
       }
-      const matcher = templates.length > 0
-        ? new LiveMatcher(templates, () => { setHit(true) }, props.threshold, (sc) => { setScore(sc) })
-        : null
       const srcNode = actx.createMediaStreamSource(s)
       proc = actx.createScriptProcessor(4096, 1, 1)
       proc.onaudioprocess = (e) => {
@@ -477,14 +522,18 @@ function MicTest(props: {
     })()
     return () => {
       stop = true
+      window.clearTimeout(rearmTimer)
+      matcher?.destroy?.()
       if (proc !== null) { proc.onaudioprocess = null; proc.disconnect() }
       if (stream !== null) for (const t of stream.getTracks()) t.stop()
       if (actx !== null) void actx.close().catch(() => {})
       setLevel(0)
       setScore(null)
       setHit(false)
+      setHitKw(null)
+      setKwsPhase(null)
     }
-  }, [testing, props.deviceId, props.threshold, props.template])
+  }, [testing, props.deviceId, props.threshold, props.template, props.engine, keywordsDep])
   const recordTemplate = (): void => {
     if (recording) return
     setRecording(true)
@@ -561,12 +610,19 @@ function MicTest(props: {
       </div>
       {testing
         ? (
-          <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: hit ? 'var(--dsw-alias-state-success-primary, #22c55e)' : colors.labelTertiary }}>
-            {hit ? props.labels.hit : props.labels.score.replace('{score}', score === null ? '—' : score.toFixed(2))}
+          <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: (hit || hitKw !== null) ? 'var(--dsw-alias-state-success-primary, #22c55e)' : kwsPhase === 'failed' ? 'var(--dsw-alias-state-error-primary, #ef4444)' : colors.labelTertiary }}>
+            {props.engine === 'kws'
+              ? kwsPhase === 'loading' ? props.labels.kwsLoading
+                : kwsPhase === 'failed' ? props.labels.kwsFailed
+                  : hitKw !== null ? props.labels.hitKw.replace('{keyword}', hitKw)
+                    : props.labels.kwsListening
+              : hit ? props.labels.hit : props.labels.score.replace('{score}', score === null ? '—' : score.toFixed(2))}
           </div>
         )
         : null}
-      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {props.engine === 'template'
+        ? (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <button
           type="button"
           disabled={recording}
@@ -589,7 +645,9 @@ function MicTest(props: {
         <span style={{ fontSize: 11, color: recFailed ? 'var(--dsw-alias-state-error-primary, #ef4444)' : colors.labelTertiary }}>
           {recording ? '' : recFailed ? props.labels.fail : props.template !== '' ? props.labels.done : props.labels.none}
         </span>
-      </div>
+          </div>
+        )
+        : null}
     </div>
   )
 }
@@ -733,12 +791,38 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
+                  {cfg.voiceEngine === 'kws'
+                    ? (
+                      <Row label={t('voiceKeywords')}>
+                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          {KWS_KEYWORD_PRESETS.map((p) => {
+                            const on = cfg.voiceKeywords.includes(p.id)
+                            return (
+                              <label key={p.id} style={{ fontSize: 13, color: colors.labelPrimary, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: disabled ? 'default' : 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  disabled={disabled}
+                                  onChange={() => {
+                                    const next = on ? cfg.voiceKeywords.filter((k) => k !== p.id) : [...cfg.voiceKeywords, p.id]
+                                    if (next.length === 0) return // 至少留一个词
+                                    props.set({ voiceKeywords: next })
+                                  }}
+                                />
+                                {p.label}
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </Row>
+                    )
+                    : null}
+                  <MicTest deviceId={cfg.micDeviceId} engine={cfg.voiceEngine} keywords={cfg.voiceKeywords} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
+                    onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
+                    labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail'), kwsLoading: t('micKwsLoading'), kwsListening: t('micKwsListening'), kwsFailed: t('micKwsFailed'), hitKw: t('micTestHitKw', { keyword: '{keyword}' }) }} />
                   {cfg.voiceEngine === 'template'
                     ? (
                       <>
-                        <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
-                          onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
-                          labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail') }} />
                         <Row label={t('voiceThreshold')}>
                           <NumberField value={cfg.voiceThreshold} min={0.3} max={0.85} float disabled={disabled} label={t('voiceThreshold')}
                             onCommit={(n) => { props.set({ voiceThreshold: n }) }} />

@@ -18,7 +18,7 @@
 
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
-import { KwsMatcher, loadKwsRuntime } from './kws.js'
+import { KwsMatcher, kwsKeywordsKey, loadKwsRuntime } from './kws.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
@@ -237,6 +237,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let voiceThreshold = initCfg.voiceThreshold
   let voiceTemplate = initCfg.voiceTemplate
   let voiceEngine = initCfg.voiceEngine
+  let voiceKeywords = initCfg.voiceKeywords
   let mood: Mood = 'idle'
   let destroyed = false
   let busyInfo: { since: number; label: string } | null = null
@@ -832,8 +833,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     voiceStarting = true
     const handle = startVoiceStop({
       engine: () => voiceEngine,
-      // KWS 引擎：wasm 模型装载失败 reject，voice.ts 自动回落模板引擎
-      kwsMatcher: async (onHit) => new KwsMatcher(await loadKwsRuntime(), onHit),
+      // KWS 引擎：wasm 模型装载失败 reject，voice.ts 自动回落模板引擎；
+      // 指令词取自当前配置（改词 = 重建监听 + 重建 KWS 实例）
+      kwsMatcher: async (onHit) => new KwsMatcher(await loadKwsRuntime(kwsKeywordsKey(voiceKeywords)), () => { onHit() }),
       // 自录模板排最前（本人嗓音匹配最强），两个电影模板兜底
       templateSrcs: () => [voiceTemplate === '' ? undefined : voiceTemplate, REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,
@@ -1107,12 +1109,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     replyOn = c.replyNiulai
     masterVolume = c.volume
     voiceControlOn = c.voiceControl
-    if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate || c.voiceEngine !== voiceEngine) {
-      // 换麦克风/调阈值/换模板/换引擎：正在听就重启监听用上新值
+    if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate || c.voiceEngine !== voiceEngine
+      || JSON.stringify(c.voiceKeywords) !== JSON.stringify(voiceKeywords)) {
+      // 换麦克风/调阈值/换模板/换引擎/改指令词：正在听就重启监听用上新值
       micDeviceId = c.micDeviceId
       voiceThreshold = c.voiceThreshold
       voiceTemplate = c.voiceTemplate
       voiceEngine = c.voiceEngine
+      voiceKeywords = c.voiceKeywords
       if (voice !== null) { voice.stop(); voice = null }
       syncVoice()
     }

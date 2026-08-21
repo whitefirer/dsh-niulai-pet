@@ -81,8 +81,12 @@ stops. No recorded reply plays on a voice stop — you just played mom's part yo
 
 - **Model (default, recommended)**: a real speech-recognition KWS — sherpa-onnx
   zipformer (wenetspeech-3.3M, int8) compiled to wasm — robust to voice,
-  background-noise and tempo differences. The ~17MB assets ship inside the npm
-  package and are served same-origin from a `/niulai-kws/<file>` route the
+  background-noise and tempo differences. **Configurable wake words**: 牛来
+  (default) / 别喊了 / 安静 / 停下 — multi-select, any match stops the loop
+  (checkboxes in the card; every word's phoneme variants are cross-validated
+  offline: zero cross-talk, zero false hits on the pet's own "mama" shouts).
+  The ~17MB assets ship inside the npm package and are served same-origin from
+  a `/niulai-kws/<file>` route the
   plugin's host half registers; first enable downloads them once (fast over LAN),
   then the browser caches them per plugin version (`?v=<version>`). If loading
   fails (older dsh without the webServer service, low-end devices) it falls back

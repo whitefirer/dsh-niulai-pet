@@ -17,6 +17,7 @@
  */
 
 import type { ActionName } from './pet.js'
+import { KWS_KEYWORD_PRESETS } from './kws.js'
 
 /** localStorage 文档键（v1：位置 x 与配置同文档；x 由 pet.ts 直读直写）。 */
 const STORE_KEY = 'dsh-niulai-pet:state-v1'
@@ -60,6 +61,8 @@ export interface PetConfig {
   voiceTemplate: string
   /** 语音停喊引擎（kws=模型识别，template=模板匹配）。 */
   voiceEngine: 'kws' | 'template'
+  /** kws 引擎的指令词（预设 id 列表，喊任一即停；至少一个）。 */
+  voiceKeywords: string[]
 }
 
 /** 可写子集（整棵 actions 映射一次替换，调用方负责读-并-写）。 */
@@ -84,6 +87,7 @@ export interface Persisted {
   voiceThreshold?: number
   voiceTemplate?: string
   voiceEngine?: 'kws' | 'template'
+  voiceKeywords?: string[]
   /** 旧全局绑定（仅迁移读取，见模块注释）。 */
   doneAction?: ActionName
   pokeAction?: ActionName
@@ -113,6 +117,14 @@ function sanitizeQuips(input: unknown): string[] {
     .map((q) => q.trim().slice(0, 120))
     .filter((q) => q.length > 0)
     .slice(0, 50)
+}
+
+/** 指令词清洗：只留预设表里的 id、去重、保序；全无效时回落默认「牛来」。 */
+function sanitizeKeywords(input: unknown): string[] {
+  if (!Array.isArray(input)) return ['niulai']
+  const valid = KWS_KEYWORD_PRESETS.map((p) => p.id)
+  const out = input.filter((k): k is string => typeof k === 'string' && valid.includes(k as (typeof valid)[number]))
+  return [...new Set(out)].length > 0 ? [...new Set(out)] : ['niulai']
 }
 
 /**
@@ -257,7 +269,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -326,6 +338,7 @@ export class ConfigStore {
       voiceTemplate: typeof p.voiceTemplate === 'string' && p.voiceTemplate.startsWith('data:audio/') && p.voiceTemplate.length < 300_000
         ? p.voiceTemplate : '',
       voiceEngine: p.voiceEngine === 'template' ? 'template' : 'kws',
+      voiceKeywords: sanitizeKeywords(p.voiceKeywords),
     }
   }
 
@@ -349,6 +362,7 @@ export class ConfigStore {
       voiceThreshold: typeof r.voiceThreshold === 'number' ? r.voiceThreshold : undefined,
       voiceTemplate: typeof r.voiceTemplate === 'string' ? r.voiceTemplate : undefined,
       voiceEngine: r.voiceEngine === 'template' ? 'template' : r.voiceEngine === 'kws' ? 'kws' : undefined,
+      voiceKeywords: Array.isArray(r.voiceKeywords) ? r.voiceKeywords as string[] : undefined,
     })
   }
 

@@ -121,6 +121,9 @@ export const Config = z.object({
   /** 语音停喊引擎：kws=真语音识别模型（sherpa-onnx wasm，17MB 同源加载，准）；
    *  template=零下载模板匹配（MFCC+DTW，轻但判别力弱）。kws 加载失败自动回落 template。 */
   voiceEngine: z.union(['kws', 'template']).default('kws'),
+  /** kws 引擎的指令词（预设 id 列表，喊任一即停；可选值见 client 半 kws.ts 的
+   *  KWS_KEYWORD_PRESETS，至少一个）。模板引擎无此概念（模板是什么词就认什么词）。 */
+  voiceKeywords: z.array(z.string()).default(['niulai']),
 })
 
 /**
