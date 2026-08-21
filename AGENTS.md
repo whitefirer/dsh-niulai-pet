@@ -70,13 +70,15 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
 template=本文件的 MFCC+DTW（零下载）；kws=sherpa-onnx zipformer
-（wenetspeech-3.3M int8）wasm，判别力远超模板。kws.ts 懒加载单例
-（注入 emscripten loader + createKws glue 两个经典脚本，KWS 实例页面级
-复用、每次监听一条 stream；按关键词串 keyed 单例——`voiceKeywords`（预设
-多选配置）变了先 free 旧实例再新建（512MB INITIAL_MEMORY 不允许并存）；
+（wenetspeech-3.3M int8）wasm，判别力远超模板。**kws 跑在 Web Worker**
+（kws/kws-worker.js，postMessage 协议见文件头：init/open/feed/hit/close，
+stream id 多路复用，卡片测试与正式监听共存）——wasm 线性内存
+（INITIAL_MEMORY=100MB，ALLOW_MEMORY_GROWTH）只涨不缩，
+`worker.terminate()` 是唯一可证明的物理释放：kws.ts 引用计数归零且空闲
+10s 即 terminate，下次监听重建（wasm/HTTP 缓存秒级），推理顺带离主线程。
 wasm/模型不在 bundle 里——随 npm 包的
 `kws/` 目录分发，**host 半 index.js 注册了 `/niulai-kws/<file>` 前缀路由**
-（`ctx.inject(['webServer'])` + 白名单四文件，dsh 只伺服 client.js 其余
+（`ctx.inject(['webServer'])` + 白名单五文件，dsh 只伺服 client.js 其余
 得自己开路由），client 半 `Module.locateFile` 指过去（`?v=__NIULAI_VERSION__`
 破缓存）。kws 装载失败 voice.ts 自动回落 template。注意：**kws/ 目录也要
 手动同步**进 profile（同 index.js 的 pnpm file: 缓存坑）：
@@ -87,7 +89,7 @@ wasm/模型不在 bundle 里——随 npm 包的
 重口音/超速漏检是已知限制，声调/鼻音变体猜修无效别堆）。
 thr 0.1/score 1.5 与 wasm 构建+冒烟见
 `/home/tenbox/wasm-build/BUILD-NOTES.md`；同源 e2e 复跑：
-`node /home/tenbox/resize-diag/kws-e2e-dsh.js`（开真实 dsh 页面喂语料断言）。
+`node /home/tenbox/resize-diag/kws-e2e-worker.js`（worker 协议全链路）。
 已知限制：「你又来」近音会误触发；INITIAL_MEMORY=512MB，低端移动浏览器
 可能实例化失败（回落模板兜底）。
 

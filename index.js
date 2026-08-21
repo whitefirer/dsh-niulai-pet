@@ -24,12 +24,13 @@ import z from '@deepseek-ai/schemastery'
  */
 const KWS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'kws')
 
-/** 白名单文件名 → content-type（只放行这四个构建产物，无目录穿越面）。 */
+/** 白名单文件名 → content-type（只放行这五个构建产物，无目录穿越面）。 */
 const KWS_FILES = {
   'sherpa-onnx-wasm-kws-main.js': 'text/javascript; charset=utf-8',
   'sherpa-onnx-kws.js': 'text/javascript; charset=utf-8',
   'sherpa-onnx-wasm-kws-main.wasm': 'application/wasm',
   'sherpa-onnx-wasm-kws-main.data': 'application/octet-stream',
+  'kws-worker.js': 'text/javascript; charset=utf-8',
 }
 
 /** /niulai-kws/<file> 静态伺服（语音停喊 KWS 引擎的运行时与模型）。 */

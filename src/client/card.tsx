@@ -16,7 +16,7 @@ import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
 import { decodeToPcm16k, encodeWav16kDataUrl, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
-import { KwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey, loadKwsRuntime } from './kws.js'
+import { createKwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey } from './kws.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 
@@ -465,29 +465,32 @@ function MicTest(props: {
       actx = new AC()
       const rate = actx.sampleRate
       if (props.engine === 'kws') {
-        // KWS 真实识别测试：与生产同一条 loadKwsRuntime + KwsMatcher 链
-        // （KWS 实例跨测试/生产共享单例，这里只开自己的 stream，绝不 free 实例）
+        // KWS 真实识别测试：与生产同一条 createKwsMatcher 链（worker 多路复用，
+        // 这里只开自己的 stream；空闲时 worker 由 kws.ts 自动 terminate）
         setKwsPhase('loading')
-        try {
-          const kws = await loadKwsRuntime(kwsKeywordsKey(props.keywords))
-          if (stop) return
-          const arm = (): void => {
-            matcher = new KwsMatcher(kws, (kw) => {
-              setHitKw(kwsKeywordLabel(kw))
-              // 命中后 1.2s 重新布防：同一声不重复触发，用户可接着再喊
-              rearmTimer = window.setTimeout(() => {
-                if (stop) return
-                matcher?.destroy?.()
-                setHitKw(null)
-                arm()
-              }, 1200)
-            })
-          }
-          arm()
-          setKwsPhase('listening')
-        } catch {
-          setKwsPhase('failed')
+        const onHitOnce = (kw: string): void => {
+          setHitKw(kwsKeywordLabel(kw))
+          // 命中后 1.2s 重新布防：同一声不重复触发，用户可接着再喊
+          rearmTimer = window.setTimeout(() => {
+            if (stop) return
+            matcher?.destroy?.()
+            matcher = null
+            setHitKw(null)
+            void arm()
+          }, 1200)
         }
+        const arm = async (): Promise<void> => {
+          try {
+            const m = await createKwsMatcher(kwsKeywordsKey(props.keywords), onHitOnce)
+            if (stop) { m.destroy(); return }
+            matcher = m
+          } catch {
+            setKwsPhase('failed')
+          }
+        }
+        await arm()
+        if (stop) return
+        if (matcher !== null) setKwsPhase('listening')
       } else {
         // 识别测试与生产同构：同一对模板、同一条 decode→mfcc→谱减→裁剪链
         const tplSrcs = [props.template !== '' ? props.template : undefined, REPLY_MATCH, REPLY_REF]

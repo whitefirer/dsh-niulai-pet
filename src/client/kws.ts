@@ -1,16 +1,18 @@
 /**
  * KWS 引擎：sherpa-onnx zipformer（wenetspeech-3.3M，int8 三件套）的 wasm 移植，
- * 真语音识别模型，判别力远超模板匹配（MFCC+DTW）——嗓音差异/背景音/语速变化
- * 都稳（浏览器冒烟：28 条语料 21 过，失败集是升调/加速加噪对抗样本，负样本
- * 零误报，与 node int8 逐样本一致；构建与冒烟见 wasm-build 的 BUILD-NOTES.md）。
+ * 真语音识别模型，判别力远超模板匹配（MFCC+DTW）。
  *
- * 资产（loader 80K + wasm 12M + int8 模型 data 4.8M + glue 9.7K）随 npm 包分发，
- * 由 host 半注册的 /niulai-kws/<file> 路由同源伺服；本模块负责懒加载：
- * 首次启用时注入两个经典脚本（emscripten loader + createKws glue），wasm 与
- * 模型经 Module.locateFile 指到同源路由（?v=<插件版本> 破缓存，长缓存）。
- * 加载失败（老 dsh 无 webServer、移动端实例化 512MB INITIAL_MEMORY 被拒等）
- * 抛给调用方回落模板引擎。KWS 实例是页面级单例（建一次 ~1s，模型驻留 wasm
- * 堆），每次监听只开一条 stream，stop 时 reset+free。
+ * 架构（2026-08-21 v2，worker 化）：识别跑在 Web Worker 里（kws/kws-worker.js），
+ * 主线程经 postMessage 多路复用（stream id）——卡片测试与正式监听可共存。
+ * 为什么放 worker：wasm 线性内存（INITIAL_MEMORY=100MB，ALLOW_MEMORY_GROWTH）
+ * 只涨不缩，free 只还对象不还物理内存；**worker.terminate() 是唯一可证明的
+ * 释放路径**——零引用空闲 IDLE_TEARDOWN_MS 后 terminate，下次监听重建
+ * （wasm/HTTP 缓存加持秒级），推理顺带挪出主线程。
+ *
+ * 资产（loader 80K + wasm 12M + int8 模型 data 4.8M + glue 9.7K + worker）随
+ * npm 包分发，由 host 半注册的 /niulai-kws/<file> 路由同源伺服（?v=<插件版本>
+ * 破缓存，长缓存）。装载失败（老 dsh 无 webServer、worker 被 CSP 拦等）抛给
+ * 调用方回落模板引擎。
  * @module dsh-niulai-pet/kws
  */
 
@@ -19,9 +21,8 @@
  * 命中上报变体文本、按前缀归并显示）。每条预设的音素变体都经
  * /tmp/niulai-stt/kws-multi-test.js 离线标定：四词共存时各词 TTS 正样本
  * 命中自身、零串词，妈妈喊声/静音/白噪/他人语音/歌声零误报
- * （已知限制：重口音/超速语音会漏检，加声调/鼻音变体救不回——实测
- * 方言变体猜修无效，不再堆变体；用户换个自己喊着顺的词即可）。
- * 加新词 = 这里加一条 + 重新跑交叉验证。
+ * （已知限制：重口音/超速语音会漏检，声调/鼻音变体猜修无效，不堆；
+ * 用户换个自己喊着顺的词即可）。加新词 = 这里加一条 + 重新跑交叉验证。
  */
 export interface KwsKeywordPreset {
   id: string
@@ -69,148 +70,150 @@ export function kwsKeywordLabel(keyword: string): string {
 /** host 半静态路由前缀（见 index.js serveKws）。 */
 const KWS_BASE = '/niulai-kws'
 
-// ---- emscripten / sherpa glue 的最小类型面（经典脚本全局，非 ESM）----
+/** 零引用空闲这么久就 terminate worker（重启链——改配置/测试重布防——毫秒级
+ *  完成不会被它打断；重建走浏览器缓存秒级）。 */
+const IDLE_TEARDOWN_MS = 10_000
 
-interface SherpaModule {
-  onRuntimeInitialized?: () => void
-  locateFile?: (file: string, prefix: string) => string
-}
+/** worker init 超时（首次要拉 17MB + wasm 编译 + 建模，宽限）。 */
+const INIT_TIMEOUT_MS = 60_000
 
-interface KwsStream {
-  acceptWaveform(sampleRate: number, samples: Float32Array): void
-  free(): void
-}
+// ---- worker 单例池（按关键词串 keyed；引用计数 + 空闲 terminate）----
 
-interface KwsResult {
+interface WorkerMsg {
+  type?: string
+  id?: number
   keyword?: string
+  message?: string
 }
 
-export interface KwsInstance {
-  createStream(): KwsStream
-  isReady(stream: KwsStream): boolean
-  decode(stream: KwsStream): void
-  getResult(stream: KwsStream): KwsResult
-  reset(stream: KwsStream): void
-  free(): void
+interface KwsPool {
+  key: string
+  worker: Worker
+  ready: Promise<void>
+  refs: number
+  teardownTimer: number
 }
 
-declare global {
-  interface Window {
-    Module?: SherpaModule
-    createKws?: (module: SherpaModule, config: unknown) => KwsInstance
-  }
+let pool: KwsPool | null = null
+let nextStreamId = 1
+
+function teardownPool(p: KwsPool): void {
+  window.clearTimeout(p.teardownTimer)
+  p.worker.terminate()
+  if (pool === p) pool = null
+  console.log('[dsh-niulai-pet] kws worker terminated (idle)')
 }
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const el = document.createElement('script')
-    el.src = src
-    el.onload = () => { resolve() }
-    el.onerror = () => { reject(new Error(`script load failed: ${src}`)) }
-    document.head.appendChild(el)
-  })
-}
-
-let runtime: { key: string; promise: Promise<KwsInstance> } | null = null
-
-/**
- * 加载并创建 KWS 实例（按关键词串做单例；并发调用共享同一 promise）。
- * 关键词变了：先释放旧实例再新建（模型驻留 wasm 堆，512MB INITIAL_MEMORY
- * 不允许两实例并存）；调用方（pet syncConfig / 卡片测试）保证旧监听的
- * stream 已 destroy。加载失败清空缓存，下次调用重试。
- */
-export function loadKwsRuntime(keywordsKey: string): Promise<KwsInstance> {
-  if (runtime !== null && runtime.key === keywordsKey) return runtime.promise
-  const old = runtime
-  runtime = null
-  const promise = (async (): Promise<KwsInstance> => {
-    if (old !== null) {
-      try { (await old.promise).free() } catch { /* 旧实例加载失败过/已释放：不挡新建 */ }
-    }
-    const q = `?v=${__NIULAI_VERSION__}`
-    // 本地变量与 window.Module 同一引用：emscripten 就地扩展该对象
-    const module: SherpaModule = {}
-    const initialized = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { reject(new Error('kws wasm init timeout (30s)')) }, 30_000)
-      module.locateFile = (file: string) => `${KWS_BASE}/${file}${q}`
-      module.onRuntimeInitialized = () => {
-        clearTimeout(timer)
-        resolve()
-      }
-      window.Module = module
-    })
-    await loadScript(`${KWS_BASE}/sherpa-onnx-wasm-kws-main.js${q}`)
-    await initialized
-    await loadScript(`${KWS_BASE}/sherpa-onnx-kws.js${q}`)
-    const create = window.createKws
-    if (create === undefined) throw new Error('createKws global missing after glue load')
-    const kws = create(module, {
-      featConfig: { samplingRate: 16000, featureDim: 80 },
-      modelConfig: {
-        transducer: {
-          encoder: './encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
-          decoder: './decoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
-          joiner: './joiner-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
-        },
-        tokens: './tokens.txt',
-        provider: 'cpu',
-        numThreads: 1,
-        debug: 0,
+function kwsConfig(keywords: string): unknown {
+  return {
+    featConfig: { samplingRate: 16000, featureDim: 80 },
+    modelConfig: {
+      transducer: {
+        encoder: './encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
+        decoder: './decoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
+        joiner: './joiner-epoch-99-avg-1-chunk-16-left-64.int8.onnx',
       },
-      maxActivePaths: 4,
-      numTrailingBlanks: 1,
-      keywordsScore: 1.5,
-      keywordsThreshold: 0.1,
-      keywords: keywordsKey,
-    })
-    console.log('[dsh-niulai-pet] kws engine ready')
-    return kws
-  })()
-  runtime = { key: keywordsKey, promise }
-  promise.catch(() => {
-    if (runtime?.key === keywordsKey) runtime = null
+      tokens: './tokens.txt',
+      provider: 'cpu',
+      numThreads: 1,
+      debug: 0,
+    },
+    maxActivePaths: 4,
+    numTrailingBlanks: 1,
+    keywordsScore: 1.5,
+    keywordsThreshold: 0.1,
+    keywords,
+  }
+}
+
+function acquire(key: string): KwsPool {
+  if (pool !== null && pool.key === key) {
+    window.clearTimeout(pool.teardownTimer)
+    return pool
+  }
+  // 换关键词：旧 worker 直接拆（调用方保证旧监听已 destroy——pet 重启链先做）
+  if (pool !== null) teardownPool(pool)
+  const q = `?v=${__NIULAI_VERSION__}`
+  const worker = new Worker(`${KWS_BASE}/kws-worker.js${q}`)
+  const p: KwsPool = { key, worker, refs: 0, teardownTimer: 0, ready: Promise.resolve() }
+  p.ready = new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => { reject(new Error('kws worker init timeout')) }, INIT_TIMEOUT_MS)
+    const onMsg = (e: MessageEvent): void => {
+      const msg = e.data as WorkerMsg
+      if (msg.type === 'ready') {
+        window.clearTimeout(timer)
+        resolve()
+      } else if (msg.type === 'error') {
+        window.clearTimeout(timer)
+        reject(new Error(msg.message ?? 'kws worker init error'))
+      }
+    }
+    const onErr = (ev: ErrorEvent): void => {
+      window.clearTimeout(timer)
+      reject(new Error(ev.message ?? 'kws worker failed to load'))
+    }
+    worker.addEventListener('message', onMsg, { once: true })
+    worker.addEventListener('error', onErr, { once: true })
+    worker.postMessage({ type: 'init', base: KWS_BASE, q, config: kwsConfig(key) })
   })
-  return promise
+  p.ready.catch(() => {
+    if (pool === p) teardownPool(p)
+  })
+  pool = p
+  return p
+}
+
+/** createKwsMatcher 的返回面（与 voice.ts 的 ChunkMatcher 同形）。 */
+export interface KwsMatcherHandle {
+  /** 喂 16k PCM 块（buffer 经 transfer 零拷贝进 worker——喂出后调用方不得再用）。 */
+  feed(chunk: Float32Array): void
+  /** 关 stream 并归还引用（最后一个引用触发空闲 terminate 倒计时），幂等。 */
+  destroy(): void
 }
 
 /**
- * 一次监听的 KWS 匹配器（与 LiveMatcher 同形：feed 16k PCM 块，命中回调一次，
- * 回调参数 = 命中的关键词文本（@词/@词A 变体原文，显示用 kwsKeywordLabel 归并））。
- * 每条监听独占一条 stream；destroy 时 reset+free 归还，KWS 实例本体留单例。
+ * 开一条 KWS 监听（worker 懒装载 + 多路复用；命中回调一次，参数 = 关键词
+ * 文本，显示用 kwsKeywordLabel 归并）。装载失败 reject（调用方回落模板）。
  */
-export class KwsMatcher {
-  private readonly kws: KwsInstance
-  private readonly stream: KwsStream
-  private readonly onHit: (keyword: string) => void
-  private fired = false
-
-  constructor(kws: KwsInstance, onHit: (keyword: string) => void) {
-    this.kws = kws
-    this.stream = kws.createStream()
-    this.onHit = onHit
+export async function createKwsMatcher(keywordsKey: string, onHit: (keyword: string) => void): Promise<KwsMatcherHandle> {
+  const p = acquire(keywordsKey)
+  p.refs++
+  try {
+    await p.ready
+  } catch (err) {
+    p.refs--
+    throw err
   }
-
-  feed(chunk: Float32Array): void {
-    if (this.fired) return
-    this.stream.acceptWaveform(16000, chunk)
-    while (this.kws.isReady(this.stream)) {
-      this.kws.decode(this.stream)
-      const r = this.kws.getResult(this.stream)
-      if (r.keyword !== undefined && r.keyword !== '') {
-        this.fired = true
-        console.log(`[dsh-niulai-pet] voice-stop matched by kws (${r.keyword})`)
-        this.onHit(r.keyword)
-        return
-      }
+  const id = nextStreamId++
+  let fired = false
+  let closed = false
+  const onMsg = (e: MessageEvent): void => {
+    const msg = e.data as WorkerMsg
+    if (msg.type === 'hit' && msg.id === id && !fired) {
+      fired = true
+      console.log(`[dsh-niulai-pet] voice-stop matched by kws (${msg.keyword ?? ''})`)
+      onHit(msg.keyword ?? '')
     }
   }
-
-  destroy(): void {
+  p.worker.addEventListener('message', onMsg)
+  p.worker.postMessage({ type: 'open', id })
+  const destroy = (): void => {
+    if (closed) return
+    closed = true
+    p.worker.removeEventListener('message', onMsg)
     try {
-      this.kws.reset(this.stream)
-      this.stream.free()
-    } catch (err) {
-      console.warn('[dsh-niulai-pet] kws stream cleanup failed:', err)
+      p.worker.postMessage({ type: 'close', id })
+    } catch { /* worker 可能已 terminate，不挡 */ }
+    p.refs--
+    if (p.refs <= 0 && pool === p) {
+      p.teardownTimer = window.setTimeout(() => { teardownPool(p) }, IDLE_TEARDOWN_MS)
     }
+  }
+  return {
+    feed(chunk: Float32Array): void {
+      if (fired || closed) return
+      p.worker.postMessage({ type: 'feed', id, samples: chunk }, [chunk.buffer])
+    },
+    destroy,
   }
 }

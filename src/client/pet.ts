@@ -18,7 +18,7 @@
 
 import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
-import { KwsMatcher, kwsKeywordsKey, loadKwsRuntime } from './kws.js'
+import { createKwsMatcher, kwsKeywordsKey } from './kws.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
@@ -833,9 +833,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     voiceStarting = true
     const handle = startVoiceStop({
       engine: () => voiceEngine,
-      // KWS 引擎：wasm 模型装载失败 reject，voice.ts 自动回落模板引擎；
-      // 指令词取自当前配置（改词 = 重建监听 + 重建 KWS 实例）
-      kwsMatcher: async (onHit) => new KwsMatcher(await loadKwsRuntime(kwsKeywordsKey(voiceKeywords)), () => { onHit() }),
+      // KWS 引擎：worker 装载失败 reject，voice.ts 自动回落模板引擎；
+      // 指令词取自当前配置（改词 = 重建监听 + 重建 KWS worker）
+      kwsMatcher: async (onHit) => createKwsMatcher(kwsKeywordsKey(voiceKeywords), () => { onHit() }),
       // 自录模板排最前（本人嗓音匹配最强），两个电影模板兜底
       templateSrcs: () => [voiceTemplate === '' ? undefined : voiceTemplate, REPLY_MATCH, REPLY_REF],
       micDeviceId: () => micDeviceId,

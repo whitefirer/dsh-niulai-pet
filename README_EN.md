@@ -85,11 +85,15 @@ stops. No recorded reply plays on a voice stop — you just played mom's part yo
   (default) / 别喊了 / 安静 / 停下 — multi-select, any match stops the loop
   (checkboxes in the card; every word's phoneme variants are cross-validated
   offline: zero cross-talk, zero false hits on the pet's own "mama" shouts).
+  Recognition runs in a Web Worker (off the main thread; wasm starts at just
+  100MB and may grow), and **listens only while it should**: 10s after the
+  loop stops, the whole worker is terminated — memory is truly handed back to
+  the browser — and rebuilt in about a second on the next listen.
   The ~17MB assets ship inside the npm package and are served same-origin from
   a `/niulai-kws/<file>` route the
   plugin's host half registers; first enable downloads them once (fast over LAN),
   then the browser caches them per plugin version (`?v=<version>`). If loading
-  fails (older dsh without the webServer service, low-end devices) it falls back
+  fails (older dsh without the webServer service, worker blocked) it falls back
   to template matching automatically. Audio never leaves the browser.
 - **Template (zero download)**: in-browser MFCC + subsequence DTW; the default
   templates are two recordings of the movie's "Niulai!" line
