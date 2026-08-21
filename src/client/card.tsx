@@ -34,6 +34,10 @@ const zh = {
   shoutLoop: '循环喊到互动停止',
   replyNiulai: '妈妈回应「牛来」',
   voiceControl: '语音停喊（喊「牛来」）',
+  voiceEngine: '识别引擎',
+  voiceEngineKws: '模型识别（推荐，更准）',
+  voiceEngineTemplate: '模板匹配（零下载）',
+  voiceEngineHint: '模型引擎首次启用需加载约 17MB 模型（同源伺服 + 浏览器缓存，之后秒开）；加载失败自动回落模板匹配',
   voiceUnsupported: '当前访问方式不支持麦克风（需 https 或 localhost 打开）',
   voiceDenied: '麦克风授权被拒——若在 cenacle 内嵌窗口里，请换独立标签页打开 dsh 再开',
   voiceNoMic: '没检测到麦克风设备，语音停喊未开启',
@@ -88,6 +92,10 @@ const en: Record<keyof typeof zh, string> = {
   shoutLoop: 'Loop shout until touched',
   replyNiulai: 'Mom answers "Niulai!"',
   voiceControl: 'Voice stop (shout "Niulai!")',
+  voiceEngine: 'Recognition engine',
+  voiceEngineKws: 'Model (recommended, more accurate)',
+  voiceEngineTemplate: 'Template (zero download)',
+  voiceEngineHint: 'The model engine loads ~17MB on first use (served same-origin, then cached by the browser); falls back to template matching if loading fails',
   voiceUnsupported: 'Microphone is unavailable on this origin (needs https or localhost)',
   voiceDenied: 'Microphone permission denied — if inside an embedded (cenacle) window, open dsh in its own tab and retry',
   voiceNoMic: 'No microphone device detected; voice stop stays off',
@@ -700,6 +708,20 @@ export function NiulaiCard(props: NiulaiCardProps) {
             {micOk && cfg.voiceControl
               ? (
                 <>
+                  <Row label={t('voiceEngine')}>
+                    <select
+                      style={selectStyle(disabled)}
+                      value={cfg.voiceEngine}
+                      disabled={disabled}
+                      onChange={(e) => { props.set({ voiceEngine: e.target.value as 'kws' | 'template' }) }}
+                    >
+                      <option value="kws" style={optionStyle}>{t('voiceEngineKws')}</option>
+                      <option value="template" style={optionStyle}>{t('voiceEngineTemplate')}</option>
+                    </select>
+                  </Row>
+                  {cfg.voiceEngine === 'kws'
+                    ? <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('voiceEngineHint')}</div>
+                    : null}
                   <Row label={t('micDevice')}>
                     <select
                       style={selectStyle(disabled)}
@@ -711,14 +733,20 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       {micDevices.map((d) => <option key={d.deviceId} value={d.deviceId} style={optionStyle}>{d.label}</option>)}
                     </select>
                   </Row>
-                  <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
-                    onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
-                    labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail') }} />
-                  <Row label={t('voiceThreshold')}>
-                    <NumberField value={cfg.voiceThreshold} min={0.3} max={0.85} float disabled={disabled} label={t('voiceThreshold')}
-                      onCommit={(n) => { props.set({ voiceThreshold: n }) }} />
-                  </Row>
-                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('voiceThresholdHint')}</div>
+                  {cfg.voiceEngine === 'template'
+                    ? (
+                      <>
+                        <MicTest deviceId={cfg.micDeviceId} threshold={cfg.voiceThreshold} template={cfg.voiceTemplate}
+                          onTemplate={(tpl) => { props.set({ voiceTemplate: tpl }) }}
+                          labels={{ test: t('micTest'), stop: t('micTestStop'), hint: t('micTestHint'), score: t('micTestScore', { score: '{score}' }), hit: t('micTestHit'), record: t('micRecord'), recording: t('micRecording'), clear: t('micRecordClear'), done: t('micRecordDone'), none: t('micRecordNone'), fail: t('micRecordFail') }} />
+                        <Row label={t('voiceThreshold')}>
+                          <NumberField value={cfg.voiceThreshold} min={0.3} max={0.85} float disabled={disabled} label={t('voiceThreshold')}
+                            onCommit={(n) => { props.set({ voiceThreshold: n }) }} />
+                        </Row>
+                        <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('voiceThresholdHint')}</div>
+                      </>
+                    )
+                    : null}
                 </>
               )
               : null}

@@ -72,18 +72,28 @@ the other reflects it immediately. Persistence is owned by the dsh host
 migrated on first load (values already changed on the settings page win); the position
 `x` stays per-device in localStorage and is not a setting.
 
-## Voice stop (zero-model)
+## Voice stop (two engines)
 
 While the pet is loop-shouting, shout **"Niulai!"** at the microphone and the loop
 stops. No recorded reply plays on a voice stop — you just played mom's part yourself
-(the reply line only answers interaction-based stops). Recognition is
-**zero-model** in-browser template matching (MFCC + subsequence DTW); the default templates
-are two recordings of the movie's "Niulai!" line (`assets/reply_match.mp3` +
-`assets/reply_ref.mp3`, min score). Cross-speaker matching against a movie clip is the
-inherent ceiling — so the card can **record your own "Niulai!"**: one shout into the
-mic stores a personal template that matches first (self-recorded self-voice nearly
-always hits), used by both the tester and the live stop. Nothing is downloaded, and
-audio never leaves the browser.
+(the reply line only answers interaction-based stops). Two recognition engines
+(switchable in the settings card):
+
+- **Model (default, recommended)**: a real speech-recognition KWS — sherpa-onnx
+  zipformer (wenetspeech-3.3M, int8) compiled to wasm — robust to voice,
+  background-noise and tempo differences. The ~17MB assets ship inside the npm
+  package and are served same-origin from a `/niulai-kws/<file>` route the
+  plugin's host half registers; first enable downloads them once (fast over LAN),
+  then the browser caches them per plugin version (`?v=<version>`). If loading
+  fails (older dsh without the webServer service, low-end devices) it falls back
+  to template matching automatically. Audio never leaves the browser.
+- **Template (zero download)**: in-browser MFCC + subsequence DTW; the default
+  templates are two recordings of the movie's "Niulai!" line
+  (`assets/reply_match.mp3` + `assets/reply_ref.mp3`, min score). Cross-speaker
+  matching against a movie clip is the inherent ceiling — so the card can
+  **record your own "Niulai!"**: one shout into the mic stores a personal
+  template that matches first (self-recorded self-voice nearly always hits),
+  used by both the tester and the live stop.
 
 - **Listens only when it should**: the mic opens only while the voice-stop switch is
   on *and* the shout loop is running; the moment the loop stops (match, poke, mute,
@@ -95,13 +105,16 @@ audio never leaves the browser.
   browser's native permission prompt); the setting is only written after a grant.
   On denial the switch flips back off with a notice. A status line shows
   "not granted / granted / unavailable".
-- Discrimination is calibrated offline in `test/voice-matcher.mts`: positives
-  (the template plus pitch/tempo/noise perturbations) score ≈0.45 at most, below the
-  0.57 threshold; negatives (the pet's own "mama" shouts, silence, white noise)
-  score ≈0.71 at least. The bias is
+- The template engine's discrimination is calibrated offline in `test/voice-matcher.mts`:
+  positives (the template plus pitch/tempo/noise perturbations) score ≈0.43 at most,
+  below the 0.54 threshold; negatives (the pet's own "mama" shouts, silence, white
+  noise) score ≈0.66 at least, and 3 consecutive sub-threshold evaluations are
+  required (debounce). The bias is
   deliberately tight — mishearing the pet's own "mama" as "Niulai" would stop the
   loop by itself. Recall on real voices depends on the mic and distance and may need
-  on-device tuning.
+  on-device tuning. The model engine's calibration (21/28 corpus pass, zero false
+  positives, near-homophones like "nǐ yòu lái" can trigger) and the wasm
+  build/smoke procedure are documented in wasm-build's BUILD-NOTES.md.
 
 The demo page has the same switch as a 🎤 corner button (localStorage-backed); pair
 it with the shout loop, e.g. preset

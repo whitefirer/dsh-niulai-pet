@@ -21,6 +21,7 @@
     "index.js",
     "cordis.patch.yml",
     "lib",
+    "kws",
     "README.md",
     "README_EN.md"
   ],

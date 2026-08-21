@@ -68,6 +68,23 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 加新皮肤 = 加素材 + skins.ts 注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，
 零改 pet.ts。
 
+**语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
+template=本文件的 MFCC+DTW（零下载）；kws=sherpa-onnx zipformer
+（wenetspeech-3.3M int8）wasm，判别力远超模板。kws.ts 懒加载单例
+（注入 emscripten loader + createKws glue 两个经典脚本，KWS 实例页面级
+复用、每次监听一条 stream）；wasm/模型不在 bundle 里——随 npm 包的
+`kws/` 目录分发，**host 半 index.js 注册了 `/niulai-kws/<file>` 前缀路由**
+（`ctx.inject(['webServer'])` + 白名单四文件，dsh 只伺服 client.js 其余
+得自己开路由），client 半 `Module.locateFile` 指过去（`?v=__NIULAI_VERSION__`
+破缓存）。kws 装载失败 voice.ts 自动回落 template。注意：**kws/ 目录也要
+手动同步**进 profile（同 index.js 的 pnpm file: 缓存坑）：
+`mkdir -p .../dsh-niulai-pet/kws && cp -l kws/* .../dsh-niulai-pet/kws/`。
+KWS 关键词/参数（4 条音素变体、thr 0.1/score 1.5）与 wasm 构建+冒烟见
+`/home/tenbox/wasm-build/BUILD-NOTES.md`；同源 e2e 复跑：
+`node /home/tenbox/resize-diag/kws-e2e-dsh.js`（开真实 dsh 页面喂语料断言）。
+已知限制：「你又来」近音会误触发；INITIAL_MEMORY=512MB，低端移动浏览器
+可能实例化失败（回落模板兜底）。
+
 **pet.ts 状态机**：`mood ∈ idle/walk/drag/celebrate/sleep/fly`。
 行为循环只在 `idle` 触发；动作派发 `runAction(name)` 解析
 `signature→当前皮肤签名`、`random→ACTION_POOL 现场抽`。

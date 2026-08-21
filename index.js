@@ -10,8 +10,55 @@
  * @module dsh-niulai-pet
  */
 
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
+
+/**
+ * KWS 引擎 wasm 资产目录（随 npm 包分发）。dsh 只伺服 /plugins/<id>/client.js，
+ * 其余文件得自己开路由：这里注册 /niulai-kws/<file> 前缀，浏览器同源拉取
+ * loader/wasm/int8 模型（约 17MB，局域网秒级；client 半按 ?v=<插件版本> 破缓存）。
+ * webServer 服务仅 web 形态存在，TUI 形态下 inject 永远不触发，静默跳过。
+ */
+const KWS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'kws')
+
+/** 白名单文件名 → content-type（只放行这四个构建产物，无目录穿越面）。 */
+const KWS_FILES = {
+  'sherpa-onnx-wasm-kws-main.js': 'text/javascript; charset=utf-8',
+  'sherpa-onnx-kws.js': 'text/javascript; charset=utf-8',
+  'sherpa-onnx-wasm-kws-main.wasm': 'application/wasm',
+  'sherpa-onnx-wasm-kws-main.data': 'application/octet-stream',
+}
+
+/** /niulai-kws/<file> 静态伺服（语音停喊 KWS 引擎的运行时与模型）。 */
+async function serveKws(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  const name = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname).slice('/niulai-kws/'.length)
+  const type = KWS_FILES[name]
+  if (type === undefined) {
+    res.writeHead(404)
+    res.end()
+    return
+  }
+  try {
+    const body = await readFile(path.join(KWS_DIR, name))
+    res.writeHead(200, {
+      'content-type': type,
+      // 同 URL 在插件版本内内容不变（升级靠 client 半 ?v= 破缓存），长缓存安全
+      'cache-control': 'public, max-age=86400',
+    })
+    res.end(body)
+  } catch {
+    res.writeHead(404)
+    res.end()
+  }
+}
 
 /**
  * settings 命名空间：与 client 半卡片注册（settings.plugin.item 的 key）配对。
@@ -71,6 +118,9 @@ export const Config = z.object({
   /** 用户自录「牛来」模板（16k mono wav 的 dataurl，空=没录）。
    *  自录模板对本人嗓音匹配远强于电影录音，是跨说话人场景的终极解法。 */
   voiceTemplate: z.string().default(''),
+  /** 语音停喊引擎：kws=真语音识别模型（sherpa-onnx wasm，17MB 同源加载，准）；
+   *  template=零下载模板匹配（MFCC+DTW，轻但判别力弱）。kws 加载失败自动回落 template。 */
+  voiceEngine: z.union(['kws', 'template']).default('kws'),
 })
 
 /**
@@ -85,5 +135,11 @@ export function apply(ctx, config) {
     // 注册行为本身才是目的（Host serve 该命名空间 → 设置页派发卡片）。
     setSource: () => {},
     onChange: () => {},
+  })
+  // KWS 资产路由（web 形态才有 webServer；TUI 形态下永远不触发）。
+  // 拆卸走 sctx.effect（同 dsh-settings 的惯例）：插件重载/卸载时摘掉路由。
+  ctx.inject(['webServer'], (sctx) => {
+    const dispose = sctx.webServer.register({ kind: 'prefix', path: '/niulai-kws', handler: serveKws })
+    sctx.effect(() => dispose)
   })
 }

@@ -1,7 +1,11 @@
 /**
- * 语音停喊：零模型模板匹配（MFCC + 子序列 DTW），不下载任何模型。
+ * 语音停喊：双引擎。
+ *  - template：零模型模板匹配（MFCC + 子序列 DTW），不下载任何模型。
+ *  - kws：真语音识别模型（sherpa-onnx wasm，见 kws.ts），判别力更强；
+ *    由 pet 经 opts.kwsMatcher 注入（本模块不硬依赖 wasm 装载路径，
+ *    node 离线测试可直导），加载失败自动回落 template。
  *
- * 模板 = 妈妈的回应「牛来！」（assets/reply.mp3 的 dataurl，运行时解码）。
+ * 模板引擎的模板 = 妈妈的回应「牛来！」（assets/reply.mp3 的 dataurl，运行时解码）。
  * 管线：getUserMedia → AudioContext → ScriptProcessor 取块 → 重采样 16k →
  * 25ms 窗 / 10ms 步分帧 → 13 维 MFCC + 一阶 delta（26 维）→ 与模板做子序列
  * DTW（起终点自由，天然容忍 ±50% 内的语速差；余弦代价 + 双端 CMN +
@@ -429,7 +433,23 @@ export function encodeWav16kDataUrl(pcm: Float32Array): string {
 
 // ---- 浏览器薄壳（以下函数体内部才碰浏览器 API，模块顶层不碰）----
 
+/** 语音停喊引擎：template=零下载模板匹配（本文件的 MFCC+DTW）；
+ *  kws=真语音识别模型（sherpa-onnx wasm，见 kws.ts），判别力更强。 */
+export type VoiceEngineName = 'template' | 'kws'
+
+/** 增量匹配器统一面：模板（LiveMatcher）与 KWS（kws.ts 的 KwsMatcher）都喂 16k PCM 块。 */
+export interface ChunkMatcher {
+  feed(chunk: Float32Array): void
+  /** 会话结束归还资源（KWS stream reset+free；模板无资源可还，缺省即可）。 */
+  destroy?(): void
+}
+
 export interface VoiceStopOptions {
+  /** 引擎选择（默认 template；kws 加载失败自动回落 template）。 */
+  engine?(): VoiceEngineName
+  /** KWS 匹配器工厂（pet 注入：voice 模块不硬依赖 wasm 装载路径，
+   *  node 离线测试导入本模块时不会拖进浏览器装载代码）。加载失败应 reject。 */
+  kwsMatcher?(onHit: () => void): Promise<ChunkMatcher>
   /** 模板音 dataurl 列表（主模板=当前皮肤 replySound，另有带噪参考模板兜底）。 */
   templateSrcs(): Array<string | undefined>
   /** 麦克风设备 id（空串 = 系统默认；设备不在时回落默认再试一次）。 */
@@ -497,11 +517,13 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
   let stream: MediaStream | null = null
   let ctx: AudioContext | null = null
   let proc: ScriptProcessorNode | null = null
+  let matcher: ChunkMatcher | null = null
 
   const cleanup = (): void => {
     if (stopped) return
     stopped = true
     if (proc !== null) { proc.onaudioprocess = null; proc.disconnect(); proc = null }
+    if (matcher !== null) { matcher.destroy?.(); matcher = null }
     if (stream !== null) { for (const t of stream.getTracks()) t.stop(); stream = null }
     if (ctx !== null) { void ctx.close().catch(() => {}); ctx = null }
     console.log('[dsh-niulai-pet] voice-stop stopped')
@@ -514,23 +536,38 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
   }
 
   const ready = (async (): Promise<boolean> => {    if (!voiceCapable()) return false
-    const srcs = opts.templateSrcs().filter((s): s is string => s !== undefined)
-    if (srcs.length === 0) return false
-    let templates: number[][][]
-    try {
-      templates = []
-      for (const src of srcs) {
-        const pcm = await decodeToPcm16k(src)
-        if (stopped) return false
-        // ratio 0.08（松）：识别模板要保住衰减尾——尾巴也是词形的一部分，
-        // 裁狠了短模板会被「妈妈」的某个局部片段强对齐（踩过）
-        const tpl = trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08)
-        if (tpl.length >= 10) templates.push(tpl)
+    // 选引擎：kws 优先（模型加载 ~17MB 同源 + 建实例 ~1s），失败回落模板匹配
+    if ((opts.engine?.() ?? 'template') === 'kws' && opts.kwsMatcher !== undefined) {
+      try {
+        matcher = await opts.kwsMatcher(() => { opts.onMatch() })
+        // 装载期间（秒级）循环可能已被互动停掉：stop 已跑过，这里自还资源
+        if (stopped) { matcher.destroy?.(); matcher = null; return false }
+      } catch (err) {
+        console.warn('[dsh-niulai-pet] kws engine unavailable, fallback to template:', err)
+        matcher = null
       }
-      if (templates.length === 0) return false
-    } catch (err) {
-      return fail(err)
     }
+    if (matcher === null) {
+      const srcs = opts.templateSrcs().filter((s): s is string => s !== undefined)
+      if (srcs.length === 0) return false
+      let templates: number[][][]
+      try {
+        templates = []
+        for (const src of srcs) {
+          const pcm = await decodeToPcm16k(src)
+          if (stopped) return false
+          // ratio 0.08（松）：识别模板要保住衰减尾——尾巴也是词形的一部分，
+          // 裁狠了短模板会被「妈妈」的某个局部片段强对齐（踩过）
+          const tpl = trimByEnergy(mfccFrames(pcm, true), frameRmsSeries(pcm), 0.08)
+          if (tpl.length >= 10) templates.push(tpl)
+        }
+        if (templates.length === 0) return false
+      } catch (err) {
+        return fail(err)
+      }
+      matcher = new LiveMatcher(templates, () => { opts.onMatch() }, opts.threshold?.() ?? VOICE_MATCH_THRESHOLD, (score) => { opts.onScore?.(score) })
+    }
+    const live = matcher
     const wantDevice = opts.micDeviceId?.() ?? ''
     const audioConstraint = (deviceId: string): MediaTrackConstraints => ({
       channelCount: 1, echoCancellation: true, noiseSuppression: true,
@@ -562,13 +599,12 @@ export function startVoiceStop(opts: VoiceStopOptions): VoiceStopHandle {
       ctx = new AC()
       if (ctx.state === 'suspended') void ctx.resume()
       const rate = ctx.sampleRate
-      const matcher = new LiveMatcher(templates, () => { opts.onMatch() }, opts.threshold?.() ?? VOICE_MATCH_THRESHOLD, (score) => { opts.onScore?.(score) })
       const source = ctx.createMediaStreamSource(stream)
       proc = ctx.createScriptProcessor(4096, 1, 1)
       proc.onaudioprocess = (e) => {
         if (stopped) return
         try {
-          matcher.feed(resampleTo16k(e.inputBuffer.getChannelData(0), rate))
+          live.feed(resampleTo16k(e.inputBuffer.getChannelData(0), rate))
         } catch (err) {
           opts.onError?.(err)
         }
