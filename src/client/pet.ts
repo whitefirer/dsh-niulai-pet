@@ -1095,9 +1095,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const dy = ev.clientY - dragStartY
     if (!dragging && Math.hypot(dx, dy) > 6) {
       dragging = true
+      const wasFlying = mood === 'fly'
       mood = 'drag'
       breathe.cancel() // 拎起倾斜用的是内联 transform，pause 态 breathe 会顶掉它
-      img.src = skinIdle() // 若正飞行中被拎起，先换回站立图
+      // 只有飞行中被拎起才换回站立图；喊叫演出（shoutAnim/张嘴帧）在放时拎着不中断——
+      // 此前无差别换站立图，演出画面没了笑声还在放（踩过）
+      if (wasFlying) img.src = skinIdle()
       root.style.cursor = 'grabbing'
     }
     if (dragging) {

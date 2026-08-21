@@ -71,7 +71,8 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 按「统一物理缩放」换算（帧高/序列最高帧 × PET_H，倒地不再巨大），宽帧以站立帧中心
 锚定并钳进视口；演出期间移动类动作让位（animTakesOver，静音兜底才跑 done/poke
 绑定动作）。注意 `img.style.height` 只能设具体 px，置 `''` 会清掉内联高度让图按
-自然尺寸炸开（踩过）。加新皮肤 = 加素材 + skins.ts
+自然尺寸炸开（踩过）；拖拽拎起只在飞行中才换站立图，无差别换图会把演出画面掐了
+笑声还在放（踩过）。加新皮肤 = 加素材 + skins.ts
 注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，零改 pet.ts。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
