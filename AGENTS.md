@@ -66,11 +66,12 @@ src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模
 **SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, shoutAnim?, imageFly?,
 imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`。
 `shoutAnim` = 喊叫帧序列（`{src, at, rock?}[]`，at 为占喊声全长比例）——配了它喊叫
-不走「开-合-开」嘴型，改按时间线逐帧演出（奶龙 23 帧：站笑抖肚→抱头弯腰→仰头→
-倒地蹬腿）。帧尺寸按「统一物理缩放」换算（帧高/序列最高帧 × PET_H，倒地不再巨大），
-宽帧以站立帧中心锚定并钳进视口；演出期间移动类动作让位（animTakesOver，静音兜底
-才跑 done/poke 绑定动作）。注意 `img.style.height` 只能设具体 px，置 `''` 会清掉
-内联高度让图按自然尺寸炸开（踩过）。加新皮肤 = 加素材 + skins.ts
+不走「开-合-开」嘴型，改按时间线逐帧演出；帧可以是**动画 webp**（奶龙：111 帧
+10fps 单文件循环，at:0 一帧挂整场演出，原生播放最平滑，循环喊时持续滚放）。帧尺寸
+按「统一物理缩放」换算（帧高/序列最高帧 × PET_H，倒地不再巨大），宽帧以站立帧中心
+锚定并钳进视口；演出期间移动类动作让位（animTakesOver，静音兜底才跑 done/poke
+绑定动作）。注意 `img.style.height` 只能设具体 px，置 `''` 会清掉内联高度让图按
+自然尺寸炸开（踩过）。加新皮肤 = 加素材 + skins.ts
 注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，零改 pet.ts。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
