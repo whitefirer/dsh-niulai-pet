@@ -438,6 +438,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // 飞行中若皮肤有飞行张嘴帧（imageFlyShout）则照样开合。
   let mouthTimers: number[] = []
   let shouting = false // 喊声播放中（含尾音保持）：sleep 压扁变暗、眨眼都要让位
+  let animRolling = false // 循环喊间隙：演出帧还在滚放——眨眼/sleep 同样不许碰 img.src
   const mouthOpen = (): void => {
     if (cur().imageShout === undefined) return
     img.src = mood === 'fly'
@@ -450,13 +451,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // 喊叫动画（shoutAnim 皮肤）：按时间线切帧，rock 帧附加倒地摇摆
   let shoutAnimTimers: number[] = []
   let rockAnim: Animation | null = null
-  const stopShoutAnim = (): void => {
+  const stopShoutAnim = (resetVisual = true): void => {
     for (const t of shoutAnimTimers) window.clearTimeout(t)
     shoutAnimTimers = []
     rockAnim?.cancel()
     rockAnim = null
-    img.style.left = ''
-    img.style.height = `${PET_H}px` // 不能置 ''——那是清掉内联高度，图会按自然尺寸炸开
+    if (resetVisual) {
+      animRolling = false
+      img.style.left = ''
+      img.style.height = `${PET_H}px` // 不能置 ''——那是清掉内联高度，图会按自然尺寸炸开
+    }
   }
   const mouthIdle = (): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
@@ -515,9 +519,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         shoutAnimTimers.push(window.setTimeout(() => apply(f), f.at * total))
       }
       shoutAnimTimers.push(window.setTimeout(() => {
-        stopShoutAnim()
+        // 循环喊 2.4s 后接下一声：保持演出帧滚放（动画 webp 本无限循环），别闪回常态；
+        // 循环已停（互动/语音/静音打断）才归位
+        const loopContinues = shoutLoopTimer !== 0
+        stopShoutAnim(!loopContinues)
+        if (loopContinues) animRolling = true // 间隙保持滚放，并挡住眨眼/sleep 抢图
         shouting = false
-        img.src = skinIdle()
+        if (!loopContinues) img.src = skinIdle()
         onDone?.()
       }, total))
       return
@@ -534,7 +542,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const scheduleBlink = (): void => {
     blinkTimer = window.setTimeout(() => {
       const canBlink = !destroyed && (mood === 'idle' || mood === 'walk')
-        && !shouting && cur().imageBlink !== undefined
+        && !shouting && !animRolling && cur().imageBlink !== undefined
       if (canBlink) {
         img.src = cur().imageBlink as string
         blinkResetTimer = window.setTimeout(() => {
@@ -696,7 +704,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
 
   const sleepFor = async (ms: number): Promise<void> => {
-    if (mood !== 'idle' || shouting) return // 叫唤着不许睡：压扁+变暗会把喊妈演成梦游
+    if (mood !== 'idle' || shouting || animRolling) return // 叫唤着/演出滚放着不许睡：压扁+变暗会把演出演成梦游
     mood = 'sleep'
     breathe.pause()
     const squash = img.animate(
@@ -881,6 +889,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       playingAudio.pause()
       playingAudio = null
     }
+    stopShoutAnim() // 打断路径：帧演出的 left/height 残留一并复位（循环喊改保持演出帧后靠这里归位）
+    shouting = false
     mouthShut() // 顺便清掉嘴型时间线（mouthTimers 一并清了）
   }
 
@@ -897,6 +907,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (withReply && wasActive) {
       cutPlayingShout()
       playReply()
+    } else if (wasActive && playingAudio === null && !shouting) {
+      // 循环死在笑声间隙（语音命中/静音/新任务顶掉）：演出帧还在滚放，这里归位；
+      // 在放中的由嘴型时间线终点自己归位，不打断
+      stopShoutAnim()
+      if (mood !== 'fly') img.src = skinIdle()
     }
     syncVoice() // 循环停 → 立即关麦停流
     return wasActive
