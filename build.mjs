@@ -34,6 +34,7 @@ await build({
   jsx: 'automatic',
   loader: {
     '.png': 'dataurl',
+    '.webp': 'dataurl',
     '.mp3': 'dataurl',
   },
   banner: {
@@ -64,6 +65,7 @@ await build({
   define,
   loader: {
     '.png': 'dataurl',
+    '.webp': 'dataurl',
     '.mp3': 'dataurl',
   },
 })

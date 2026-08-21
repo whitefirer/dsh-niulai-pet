@@ -260,6 +260,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const root = document.createElement('div')
   root.style.cssText = [
     'position:fixed', `bottom:${BOTTOM}px`, 'left:0', `height:${PET_H}px`,
+    'display:flex', 'flex-direction:column', 'justify-content:flex-end',
     'z-index:99999', 'user-select:none', '-webkit-user-select:none',
     'touch-action:none', 'cursor:grab', 'filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))',
   ].join(';')
@@ -348,12 +349,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
   }
 
-  // 预读各帧渲染宽度（高固定 PET_H）：shoutAnim 切宽帧（如倒地）时保持视觉中心不跑偏
-  const frameW = new Map<string, number>()
+  // 预读各帧尺寸（w=站立高度 PET_H 下渲染宽，h=自然高）：shoutAnim 逐帧动画按
+  // 「统一物理缩放」换算显示尺寸（帧高/参考高 × PET_H），倒地宽帧还要锚定视觉中心
+  const frameW = new Map<string, { w: number; h: number }>()
   const preloadW = (src: string | undefined): void => {
     if (src === undefined || frameW.has(src)) return
     const im = new Image()
-    im.onload = () => frameW.set(src, (im.naturalWidth / im.naturalHeight) * PET_H)
+    im.onload = () => frameW.set(src, { w: (im.naturalWidth / im.naturalHeight) * PET_H, h: im.naturalHeight })
     im.src = src
   }
   for (const s of assets.skins) {
@@ -454,6 +456,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     rockAnim?.cancel()
     rockAnim = null
     img.style.left = ''
+    img.style.height = `${PET_H}px` // 不能置 ''——那是清掉内联高度，图会按自然尺寸炸开
   }
   const mouthIdle = (): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
@@ -473,12 +476,22 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (anim !== undefined && anim.length > 0) {
       const total = Math.max(ms, 420)
       const frames = [...anim].sort((a, b) => a.at - b.at)
+      // 统一物理缩放：参考高 = 序列最高帧（站姿），其余帧按 帧高/参考高 比例显示——
+      // 同角色同机位，倒地帧不会被拉到和站着一样高（此前倒地显得巨大就是这么来的）
+      let refH = 0
+      for (const f of frames) {
+        const e = frameW.get(f.src)
+        if (e !== undefined && e.h > refH) refH = e.h
+      }
       const apply = (f: ShoutFrame): void => {
         img.src = f.src
+        const e = frameW.get(f.src)
+        const scale = e !== undefined && refH > 0 ? Math.min(1, e.h / refH) : 1
+        img.style.height = `${Math.round(PET_H * scale)}px`
         // 宽帧（倒地）补偿：以站立帧中心为锚水平平移，并钳进视口（scaleX 翻转下符号随 facing 镜像）
-        const idleW = frameW.get(cur().image)
-        const fw = frameW.get(f.src)
-        if (idleW !== undefined && fw !== undefined) {
+        const idleW = frameW.get(cur().image)?.w
+        if (idleW !== undefined && e !== undefined) {
+          const fw = e.w * scale
           let off = ((idleW - fw) / 2) * facing
           if (facing === 1) {
             const cx = x + idleW / 2
@@ -1000,8 +1013,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
       }
     }
-    runAction(doneAction()) // 安静模式也照做动作，只是没声没气泡
+    if (!(shoutOnDone && animTakesOver())) runAction(doneAction()) // 帧演出即庆祝本体时动作让位；安静模式照做
   }
+
+  /** 有喊叫动画且会出声：帧序列本身就是演出，移动类动作（翻滚/跳）得让位。 */
+  const animTakesOver = (): boolean =>
+    (cur().shoutAnim?.length ?? 0) > 0 && !muted && masterVolume > 0
 
   const celebrate = (): void => {
     const now = Date.now()
@@ -1047,7 +1064,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       playReply()
     }
     if (!wasLooping && !wasChain) shout()
-    runAction(pokeAction())
+    if (!animTakesOver()) runAction(pokeAction()) // 帧演出在放时移动类动作让位（否则大笑帧被转成陀螺）
   }
 
   // ---- 指针交互（点击 vs 拖拽）----
