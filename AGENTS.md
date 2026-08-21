@@ -69,6 +69,7 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 零改 pet.ts。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
+（演进/数据/复跑脚本单一来源 = `docs/voice-stop-engine.md`，改动同步它。）
 template=本文件的 MFCC+DTW（零下载）；kws=sherpa-onnx zipformer
 （wenetspeech-3.3M int8）wasm，判别力远超模板。**kws 跑在 Web Worker**
 （kws/kws-worker.js，postMessage 协议见文件头：init/open/feed/hit/close，
