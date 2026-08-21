@@ -63,10 +63,12 @@ src/client/card.tsx   设置卡片：React 组件 + CardController + registerSet
 src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
 ```
 
-**SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, imageFly?,
+**SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, shoutAnim?, imageFly?,
 imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`。
-加新皮肤 = 加素材 + skins.ts 注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，
-零改 pet.ts。
+`shoutAnim` = 喊叫帧序列（`{src, at, rock?}[]`，at 为占喊声全长比例）——配了它喊叫
+不走「开-合-开」嘴型，改按时间线切帧（奶龙：站笑→弯腰→抱头→倒地滚）；宽帧按
+站立帧中心锚定并钳进视口（frameW 预读渲染宽度）。加新皮肤 = 加素材 + skins.ts
+注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，零改 pet.ts。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
 （演进/数据/复跑脚本单一来源 = `docs/voice-stop-engine.md`，改动同步它。）

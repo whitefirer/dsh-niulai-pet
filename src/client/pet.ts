@@ -29,6 +29,13 @@ export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
 export type ActionName =
   | 'signature' | 'fly' | 'dance' | 'spin' | 'hops' | 'roll' | 'breach' | 'sway' | 'random'
 
+/** 喊叫动画帧：at = 起始时刻（占喊声全长比例 0..1，升序）；rock = 该帧期间附加倒地摇摆。 */
+export interface ShoutFrame {
+  src: string
+  at: number
+  rock?: boolean
+}
+
 export interface SkinDef {
   id: string
   /** 菜单显示名。 */
@@ -39,6 +46,8 @@ export interface SkinDef {
   imageBlink?: string
   /** 张嘴图（喊叫嘴部张合用，可选）。 */
   imageShout?: string
+  /** 喊叫动画帧序列（可选；配置后喊叫不再走「开-合-开」嘴型，改按时间线切帧，如奶龙笑到弯腰/倒地）。 */
+  shoutAnim?: ShoutFrame[]
   /** 飞行/俯冲图（fly 动作用，缺省用站立图）。 */
   imageFly?: string
   /** 飞行张嘴图（飞行中喊叫用，可选）。 */
@@ -258,7 +267,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const img = document.createElement('img')
   img.src = skinIdle()
   img.draggable = false
-  img.style.cssText = `height:${PET_H}px;display:block;transform-origin:50% 100%;pointer-events:none`
+  img.style.cssText = `height:${PET_H}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
@@ -337,6 +346,19 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       probe.addEventListener('loadedmetadata', () => { soundDur.set(src, probe.duration) })
       probe.src = src
     }
+  }
+
+  // 预读各帧渲染宽度（高固定 PET_H）：shoutAnim 切宽帧（如倒地）时保持视觉中心不跑偏
+  const frameW = new Map<string, number>()
+  const preloadW = (src: string | undefined): void => {
+    if (src === undefined || frameW.has(src)) return
+    const im = new Image()
+    im.onload = () => frameW.set(src, (im.naturalWidth / im.naturalHeight) * PET_H)
+    im.src = src
+  }
+  for (const s of assets.skins) {
+    preloadW(s.image)
+    for (const f of s.shoutAnim ?? []) preloadW(f.src)
   }
 
   /** 在播的喊声（语音/互动打断时当场掐断用）。 */
@@ -423,17 +445,70 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const mouthShut = (): void => {
     img.src = mood === 'fly' ? (cur().imageFly ?? cur().image) : skinIdle()
   }
+  // 喊叫动画（shoutAnim 皮肤）：按时间线切帧，rock 帧附加倒地摇摆
+  let shoutAnimTimers: number[] = []
+  let rockAnim: Animation | null = null
+  const stopShoutAnim = (): void => {
+    for (const t of shoutAnimTimers) window.clearTimeout(t)
+    shoutAnimTimers = []
+    rockAnim?.cancel()
+    rockAnim = null
+    img.style.left = ''
+  }
   const mouthIdle = (): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
     mouthTimers = []
+    stopShoutAnim()
     shouting = false
     if (mood !== 'fly') img.src = skinIdle()
   }
-  /** 一声的嘴型时间线：开 240ms → 合 120ms → 开并保持 → ms 时合上，onDone 接龙。 */
+  /** 一声的嘴型时间线：开 240ms → 合 120ms → 开并保持 → ms 时合上，onDone 接龙。
+   *  皮肤配了 shoutAnim（且非飞行）时改走帧序列时间线：站笑→弯腰→倒地滚。 */
   const mouthShout = (ms: number, onDone?: () => void): void => {
     for (const t of mouthTimers) window.clearTimeout(t)
     mouthTimers = []
+    stopShoutAnim()
     shouting = true
+    const anim = mood !== 'fly' ? cur().shoutAnim : undefined
+    if (anim !== undefined && anim.length > 0) {
+      const total = Math.max(ms, 420)
+      const frames = [...anim].sort((a, b) => a.at - b.at)
+      const apply = (f: ShoutFrame): void => {
+        img.src = f.src
+        // 宽帧（倒地）补偿：以站立帧中心为锚水平平移，并钳进视口（scaleX 翻转下符号随 facing 镜像）
+        const idleW = frameW.get(cur().image)
+        const fw = frameW.get(f.src)
+        if (idleW !== undefined && fw !== undefined) {
+          let off = ((idleW - fw) / 2) * facing
+          if (facing === 1) {
+            const cx = x + idleW / 2
+            const clamped = Math.min(Math.max(cx, fw / 2 + 8), window.innerWidth - fw / 2 - 8)
+            off += clamped - cx
+          }
+          img.style.left = `${off}px`
+        }
+        rockAnim?.cancel()
+        rockAnim = null
+        if (f.rock === true) {
+          rockAnim = img.animate(
+            [{ transform: 'rotate(-9deg)' }, { transform: 'rotate(9deg)' }],
+            { duration: 460, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' },
+          )
+        }
+      }
+      apply(frames[0])
+      for (let i = 1; i < frames.length; i++) {
+        const f = frames[i]
+        shoutAnimTimers.push(window.setTimeout(() => apply(f), f.at * total))
+      }
+      shoutAnimTimers.push(window.setTimeout(() => {
+        stopShoutAnim()
+        shouting = false
+        img.src = skinIdle()
+        onDone?.()
+      }, total))
+      return
+    }
     mouthOpen()
     mouthTimers.push(window.setTimeout(mouthShut, 240))
     mouthTimers.push(window.setTimeout(mouthOpen, 360))

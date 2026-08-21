@@ -36,6 +36,8 @@ import nailongImage from '../../assets/nailong.png'
 import nailongBlink from '../../assets/nailong_blink.png'
 import nailongShout from '../../assets/nailong_shout.png'
 import nailongRoll from '../../assets/nailong_roll.png'
+import nailongBend from '../../assets/nailong_laugh_bend.png'
+import nailongHead from '../../assets/nailong_laugh_head.png'
 import nailongLaugh from '../../assets/nailong_laugh.mp3'
 import type { SkinDef } from './pet.js'
 
@@ -134,6 +136,13 @@ export const SKINS: SkinDef[] = [
     sounds: [nailongLaugh],
     signature: 'roll',
     shoutBubble: '哈~哈~',
+    // 大笑时间线：站着捧腹 → 弯腰 → 抱头 → 笑倒地上打滚（11s 笑声按比例排布）
+    shoutAnim: [
+      { src: nailongShout, at: 0 },
+      { src: nailongBend, at: 0.26 },
+      { src: nailongHead, at: 0.52 },
+      { src: nailongRoll, at: 0.74, rock: true },
+    ],
     quips: ['嘿嘿，今天也是快乐的一天', '捧腹大笑是基本功'],
   },
 ]
