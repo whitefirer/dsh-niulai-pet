@@ -34,6 +34,7 @@ code as a standalone page, with a simulated task driver for celebrations.
 | Cow 奶牛 | hand-drawn flat SVG | WebAudio synth moo | roll |
 | Panda 熊猫 | hand-drawn | synth squeak | roll |
 | Whale 蓝鲸 | hand-drawn (DeepSeek blue, orca eye patch) | synth whale call | breach — spouts at the arc top |
+| Nailong 奶龙 | cutout from AI three-view sheets + video frames | movie laugh (denoised) | roll — laughs so hard it rolls |
 
 ## Behavior
 

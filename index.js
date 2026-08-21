@@ -77,7 +77,7 @@ const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach
  * 皮肤 id 集合（抄自 client 半 src/client/skins.ts 的 SKINS 注册表——host 半
  * 不能 import 它（会拖进素材 dataurl），加皮肤时两边同步。
  */
-const SKIN_IDS = ['niulai', 'orig', 'young', 'cow', 'panda', 'whale']
+const SKIN_IDS = ['niulai', 'orig', 'young', 'cow', 'panda', 'whale', 'nailong']
 
 const Action = z.union(ACTION_IDS)
 

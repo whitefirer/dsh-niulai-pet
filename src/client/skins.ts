@@ -32,6 +32,11 @@ import replyMatch from '../../assets/reply_match.mp3'
 import petOrig from '../../assets/pet_orig.png'
 import petOrigShout from '../../assets/pet_orig_shout.png'
 import petOrigBlink from '../../assets/pet_orig_blink.png'
+import nailongImage from '../../assets/nailong.png'
+import nailongBlink from '../../assets/nailong_blink.png'
+import nailongShout from '../../assets/nailong_shout.png'
+import nailongRoll from '../../assets/nailong_roll.png'
+import nailongLaugh from '../../assets/nailong_laugh.mp3'
 import type { SkinDef } from './pet.js'
 
 /**
@@ -118,5 +123,17 @@ export const SKINS: SkinDef[] = [
     signature: 'breach',
     shoutBubble: '噗——！',
     quips: ['深海里没有 deadline', '咕嘟咕嘟'],
+  },
+  {
+    id: 'nailong',
+    name: '奶龙',
+    image: nailongImage,
+    imageShout: nailongShout,
+    imageBlink: nailongBlink,
+    voice: 'mama',
+    sounds: [nailongLaugh],
+    signature: 'roll',
+    shoutBubble: '哈~哈~',
+    quips: ['嘿嘿，今天也是快乐的一天', '捧腹大笑是基本功'],
   },
 ]
