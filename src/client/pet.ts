@@ -779,6 +779,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 庆祝代际：每次 fireCelebrate/打断 +1，旧连喊链读到代际不符即自杀
    *  （bool 旗会被新一轮复位误伤——旧链会复活，用代际一了百了）。 */
   let celebrateGen = 0
+  /** 待延迟庆祝代际：延迟调度（新完成顶掉旧的待延迟）与「用户已处理」事件
+   *  （戳/拖/新任务开跑）都 +1，定时器到点读取代际不符即死——
+   *  延迟期间用户已经处理过（应声或发了新消息）的完成不再喊。 */
+  let pendingCelebrateGen = 0
 
   /** 当场掐断在播的喊声 + 合嘴 + 连喊链作废（打断语义：被应声了还喊完长尾音就像没听见）。 */
   const cutPlayingShout = (): void => {
@@ -929,9 +933,15 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     stopShoutLoop(false, '新一轮完成顶掉') // 新一轮完成顶掉上一轮未停的循环
     const delayMs = doneDelaySec * 1000
     if (delayMs > 0) {
-      window.setTimeout(() => { if (!destroyed) fireCelebrate() }, delayMs)
+      // 代际 +1：既顶掉旧的待延迟庆祝，也是「延迟期间被处理」的判死依据
+      const gen = ++pendingCelebrateGen
+      window.setTimeout(() => {
+        if (destroyed || gen !== pendingCelebrateGen) return
+        fireCelebrate()
+      }, delayMs)
       return
     }
+    pendingCelebrateGen++ // 立即庆祝也作废任何待延迟的（边界：延迟中又把延迟改回 0）
     fireCelebrate()
   }
 
@@ -951,6 +961,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
+    pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
     const wasLooping = stopShoutLoop(true, '戳一下')
     const wasChain = chainActive
@@ -976,6 +987,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (menu.contains(ev.target as Node) || about.contains(ev.target as Node)) return
     dragging = false
     downAt = performance.now()
+    pendingCelebrateGen++ // 任意上手互动（拖拽/点击预备）：延迟中的完成庆祝判死
     stopShoutLoop(true, '上手互动') // 任意上手互动（含拖拽与点击预备）都停循环喊，妈妈回一句
     dragStartX = ev.clientX
     dragStartY = ev.clientY
@@ -1139,7 +1151,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     poke,
     setBusy(busy) {
       busyInfo = busy
-      if (busy !== null) stopShoutLoop(true, '新任务开跑') // 新任务开跑：别再喊了；打断时妈妈回一句
+      if (busy !== null) {
+        pendingCelebrateGen++ // 新任务开跑：延迟中的完成庆祝判死（用户已发新消息，处理过了）
+        stopShoutLoop(true, '新任务开跑') // 新任务开跑：别再喊了；打断时妈妈回一句
+      }
     },
     setMuted(m) {
       config.set({ muted: m })

@@ -43,7 +43,7 @@ code as a standalone page, with a simulated task driver for celebrations.
 | Click (poke) | shouts once + bound action; poking mid-loop just answers it (no extra shout) |
 | Drag | carried along, lands with a bounce; position persisted (localStorage) |
 | Right-click | menu: sound / shout-on-done / chatter toggle pills, shout repeat (1–3),<br>action bindings, skin picker, fly-by, shout, about |
-| Task done | voice line (repeatable, or looped until touched) + bubble + mouth timeline<br>(open-close-open, held through the tail note) + bound action (6s throttle, configurable delay) |
+| Task done | voice line (repeatable, or looped until touched) + bubble + mouth timeline<br>(open-close-open, held through the tail note) + bound action (6s throttle, configurable delay — if you poke/drag it or start a new task during the delay, the pending shout is cancelled as already-handled) |
 
 Action library: fly (upward arc), dance, spin, triple hop, roll, breach, cow-sway.
 Any skin can bind any action; "signature" follows the current skin, "random" picks live.
@@ -86,7 +86,7 @@ stops. No recorded reply plays on a voice stop — you just played mom's part yo
   (checkboxes in the card; every word's phoneme variants are cross-validated
   offline: zero cross-talk, zero false hits on the pet's own "mama" shouts).
   Recognition runs in a Web Worker (off the main thread; wasm starts at just
-  100MB and may grow), and **listens only while it should**: 10s after the
+  32MB — the measured working set never exceeds it — with growth headroom), and **listens only while it should**: 10s after the
   loop stops, the whole worker is terminated — memory is truly handed back to
   the browser — and rebuilt in about a second on the next listen.
   The ~17MB assets ship inside the npm package and are served same-origin from

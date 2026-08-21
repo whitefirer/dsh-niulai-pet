@@ -73,7 +73,7 @@ template=本文件的 MFCC+DTW（零下载）；kws=sherpa-onnx zipformer
 （wenetspeech-3.3M int8）wasm，判别力远超模板。**kws 跑在 Web Worker**
 （kws/kws-worker.js，postMessage 协议见文件头：init/open/feed/hit/close，
 stream id 多路复用，卡片测试与正式监听共存）——wasm 线性内存
-（INITIAL_MEMORY=100MB，ALLOW_MEMORY_GROWTH）只涨不缩，
+（INITIAL_MEMORY=32MB——实测高水位：16MB 不够、32MB 全程不涨；ALLOW_MEMORY_GROWTH 兜底）只涨不缩，
 `worker.terminate()` 是唯一可证明的物理释放：kws.ts 引用计数归零且空闲
 10s 即 terminate，下次监听重建（wasm/HTTP 缓存秒级），推理顺带离主线程。
 wasm/模型不在 bundle 里——随 npm 包的
