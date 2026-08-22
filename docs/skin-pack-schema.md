@@ -14,7 +14,7 @@
 单文件 zip，建议扩展名 `.nlpack.zip`（双击关联友好，本质普通 zip）：
 
 ```
-xiaonailong.nlpack.zip
+robot.nlpack.zip
 ├── pack.json              # 角色清单（唯一定义入口）
 ├── assets/                # 角色级共享素材（声音等）
 │   ├── laugh.mp3
@@ -40,11 +40,11 @@ xiaonailong.nlpack.zip
 {
   "spec": 1,                      // 必填，schema 版本。加载器只认它懂的 spec
   "type": "character",            // character=完整角色；variant=派生覆盖包（见 §4）
-  "id": "xiaonailong",            // 必填，角色 id。[a-z0-9-]，2~32 字符，全局唯一
-  "name": "小奶龙",                // 必填，显示名
+  "id": "robot",                 // 必填，角色 id。[a-z0-9-]，2~32 字符，全局唯一（别撞内置 id：niulai/orig/young/panda/whale/nailong/dagou/cat/xiaonailong）
+  "name": "机器人",                // 必填，显示名
   "version": "1.0.0",             // 必填，包版本（semver 字符串，仅展示与升级比对用）
   "author": "whitefirer",         // 可选
-  "description": "我才是奶龙！",   // 可选，一句话介绍
+  "description": "自定义角色包导入演示样例",  // 可选，一句话介绍
 
   "voice": {                      // 必填。声音策略
     "type": "samples",            // samples=自带音频 | synth=内置合成音色
@@ -73,7 +73,8 @@ xiaonailong.nlpack.zip
         "shout": "skins/default/shout.png",   // 可选，张嘴图（喊叫嘴型）
         "fly": "skins/default/fly.png",       // 可选，fly 动作图（缺省用 stand）
         "flyShout": "skins/default/fly_shout.png", // 可选，飞行中喊叫
-        "spout": "skins/default/spout.png"    // 可选，breach 弧顶特效图
+        "spout": "skins/default/spout.png",   // 可选，breach 弧顶特效图
+        "sleep": "skins/default/sleep.png"    // 可选，打盹专睡图（配了它换图不压扁）
       },
       // 可选，喊叫演出。配置后喊叫不走「开-合-开」嘴型，改按时间线切帧。
       // src 可以是帧图序列，也可以是单个动画 webp（at:0 一帧到底，推荐）。
@@ -83,7 +84,9 @@ xiaonailong.nlpack.zip
       ],
       "signature": "sway",        // 可选，签名动作。缺省 hops
       "shoutBubble": "哈~哈~",     // 可选，喊叫气泡文案。缺省角色名
-      "quips": []                 // 可选，皮肤级语录
+      "quips": [],                // 可选，皮肤级语录
+      "size": 100                 // 可选，默认显示高度 px（72~200 整数）。缺省 120；
+                                  // 选用该皮肤时大小滑杆落到它，用户另行调整优先
     }
   ]
 }
@@ -104,10 +107,11 @@ xiaonailong.nlpack.zip
 | 角色 | 皮肤 | 角色级素材 | 备注 |
 |---|---|---|---|
 | niulai 牛来 | default（萌化）/ orig（原皮）/ young（小黄） | mama1/2.mp3、reply.mp3 | 三皮肤共享声音，签名/气泡/语录各不同（在皮肤层） |
-| cow 奶牛 | default | —（synth moo） | |
 | panda 熊猫 | default | —（synth squeak） | |
 | whale 蓝鲸 | default | —（synth whale） | |
 | nailong 奶龙 | default | nailong_laugh.mp3 | shoutAnim 动画 webp |
+| dagou 大狗 | default | dagou_call.mp3 | 立绘自带 alpha（Dagou-Tap-New） |
+| cat 赛博猫 | default | cat_meow.mp3 | 有 images.sleep 趴睡图 |
 
 ## 3. 加载与校验
 

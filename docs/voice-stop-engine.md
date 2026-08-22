@@ -77,7 +77,7 @@ pet.ts / 卡片测试
 |---|---|---|
 | 常规正样本（牛来本体+变调/变速/窄带扰动+真人录音 r1） | 11/11 | reply/band/match/pitchdn/ref/tempodn/tempoup、x-r1、x-niulai、x-cmp_theirs 等 |
 | 对抗正样本（升调/加速加噪/-25dB 白噪/真人 r2/r3） | 0/7 | **已知限制**：reply-noise、reply-pitchup、reply-tempo-noise、x-r2/r3、x-reply_r2/r3 |
-| 负样本（妈妈喊声×3、静音、白噪、他人语音×2、歌声） | **9/9 零误报** | 宠物自己喊的「妈妈」绝不能停自己，这是功能杀手 |
+| 负样本（妈妈喊声×4、静音、白噪、他人语音×2、歌声） | **9/9 零误报** | 宠物自己喊的「妈妈」绝不能停自己，这是功能杀手 |
 
 → 20/27，失败集 = 7 条对抗样本，与 node int8 完全一致。
 （浏览器复跑：`SMOKE_URL=.../full.html node kws-smoke.js`）

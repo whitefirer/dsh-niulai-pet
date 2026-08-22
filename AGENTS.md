@@ -5,8 +5,8 @@
 
 ## 是什么
 
-dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，5 个内置角色 7 个皮肤
-（牛来/原皮/小黄/奶牛/熊猫/鲸鱼/奶龙）+ 用户自定义角色包（zip 导入），
+dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，7 个内置角色 9 个皮肤
+（牛来/原皮/小黄/熊猫/鲸鱼/奶龙/大狗/赛博猫/小奶龙）+ 用户自定义角色包（zip 导入），
 订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。
 - **client 半**（`lib/client.js`）：桌宠本体 + 设置卡片（dsh rc.7+ 设置页
   「插件配置」区，React 组件，react 由宿主模块表提供、构建时 external）。
@@ -55,8 +55,8 @@ workflow 会校验 tag 与版本号一致，不符直接失败。手动兜底：
 
 ## 架构
 
-```
-src/client/index.ts   入口：PackRegistry/ConfigStore 创建、sessions 订阅（含忙闲沿）、卡片子 fiber
+src/client/index.ts   入口：PackRegistry/ConfigStore 创建、sessions 订阅（含忙闲沿）、卡片子 fiber、
+                      插件侧全家福管理器（主宠菜单入口；均匀/层次/收起循环，钉住+置顶+原位恢复）
 src/client/packs.ts   角色包核心：两级模型（角色=声音/动作/事件/语录，皮肤=外观）、内置包定义、
                       zip 解析校验（PackParseError 逐条字段级错误）、派生合并（variant）、
                       IndexedDB 存取、PackRegistry 可观察门面
@@ -64,14 +64,26 @@ src/client/skins.ts   兼容层：SKINS=内置包展开 + 语音模板（assets/
 src/client/pet.ts     桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声（皮肤列表经 subscribeSkins 热更新）
 src/client/config.ts  ConfigStore：localStorage / settings scope 双后端 + 旧版迁移（updateSkinIds 动态白名单）
 src/client/card.tsx   设置卡片：React 组件 + CardController + 自定义角色管理（PackManager）
-src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
+src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝（全员广播）、
+                      角标区（一起飞/全家福/包试玩/语音/隐藏/静音）
+src/client/family.ts  全家福排布共享模块：阵容常量 + layoutUniform/layoutLayered（demo 与插件共用）
+src/client/highlight.ts 预览图高亮总线（card 点预览图 → 对应 pet 发光+小跳，按 petId 认领）
 ```
 
 **SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, shoutAnim?, imageFly?,
-imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`。
+imageFlyShout?, imageSpout?, imageSleep?, voice, sounds?, signature, shoutBubble, quips?, defaultSize? }`。
+PetHandle 公开面：`celebrate/poke/fly/setBusy/setMuted/isMuted/destroy`
++ `bounds()`（位姿 x/y/w）、`place(x)`（摆位，非展示挂载落盘）、`setVisible()`
+（先隐挂载防闪）、`setPinned()`（钉住不游走）、`setTopmost()`（置顶压层）；
+PetAssets 可选钩子：`forceSkin/forceSize`（展示性挂载：不写位置记忆、不进物理、
+不游走）、`onFlightEnd`（飞行落地回调，与 flight 收尾同同步段=零闪烁）、
+`onFamilyToggle`（主宠菜单全家福入口）、`highlight`（预览高亮总线）。
 `shoutAnim` = 喊叫帧序列（`{src, at, rock?}[]`，at 为占喊声全长比例）——配了它喊叫
-不走「开-合-开」嘴型，改按时间线逐帧演出；帧可以是**动画 webp**（奶龙：111 帧
-10fps 单文件循环，at:0 一帧挂整场演出，原生播放最平滑，循环喊时持续滚放）。帧尺寸
+不走「开-合-开」嘴型，改按时间线逐帧演出；帧可以是**动画 webp**（奶龙：157 帧
+10fps 单文件循环≈15.7s 与笑声音频等长——原 111 帧 11.1s 对不上 15.65s 完整笑声，
+打滚段乒乓补帧 + 画布顶裁 7px 归一（曾裁 22px 把仰头帧头顶切了；全帧内容顶 y=9，
+安全值裁完站姿笑占画布 92%），at:0 一帧挂整场演出，
+原生播放最平滑，循环喊时持续滚放）。帧尺寸
 按「统一物理缩放」换算（帧高/序列最高帧 × PET_H，倒地不再巨大），宽帧以站立帧中心
 锚定并钳进视口；循环喊的两声间隙演出帧保持滚放（animRolling 标记挡住眨眼/sleep
 抢图，打断路径由 stopShoutLoop/cutPlayingShout 归位）；演出期间移动类动作让位
@@ -81,10 +93,12 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 
 **角色包（packs.ts）**：两级模型——角色（声音/动作/事件/语录）+ 皮肤（外观），
 格式规范与导入校验规则见 `docs/skin-pack-schema.md`。要点：内置皮肤全局 id 沿用
-历史值（niulai/orig/young/cow/panda/whale/nailong，存量配置零迁移），自定义包皮肤
+历史值（niulai/orig/young/panda/whale/nailong/dagou/cat/xiaonailong，存量配置零迁移；
+奶牛 0.4.7 移除，存量 cow 回落默认），自定义包皮肤
 id = `角色id/皮肤id`；多皮肤角色的显示名组合为 `角色名·皮肤名`。加内置角色 =
 assets/<角色>/ 放素材 + BUILTIN_PACKS 注册一条；用户角色走 zip 导入（fflate 解、
 逐字段校验、素材转 dataurl 进 IndexedDB），host 半 skin 字段已是自由字符串
+演示样例包 = `docs/assets/robot.nlpack.zip`（单帧+一声最小包，试玩页拖入即验流程）。
 （合法性由 client 白名单围栏）。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
@@ -119,6 +133,26 @@ thr 0.1/score 1.5 与 wasm 构建+冒烟见
 **喊声是独立状态**：`shouting` 旗标（mouthShout 置位/复归）——sleep、眨眼等
 idle 行为必须查它让位（喊声不改 mood，只查 mood 会演出"边喊边趴下变暗"）。
 
+**多只与物理**（physics.ts + pet.ts）：额外表由 index.ts 的 syncExtraPets 盯
+配置 `extraPets` 增删实例（皮肤/大小/语录按只分存——语录链=本只专属→全局
+自定义→内置池，位置按只分存，行为配置全局共享）。设置卡片「配置对象」
+选择器带皮肤预览图，**点预览图对应桌宠发光+小跳**（highlight.ts 总线，
+card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkinId`（曾错用
+全局 skin 字段，包一变更额外表全变成主宠皮肤，刷新才恢复）。
+物理世界是**地面一维 + 高度门槛**：重叠分离只看 x 区间，且要求垂直搭界
+（`getLiftY` 底边离地 + `getH` 身高求重叠——拎着越过头顶不推人）；
+`held()`（拖拽/坠落中）的一方不被推只推人。坠落（startFall）松手带水平
+抛掷初速度，坠落期按 vx 顺势倾斜、落定才回正；首次触地 `impactAt` 判砸落
+（受害只 bump，强度按**头顶上方落差**算），压实在别只头上（水平重叠过
+窄者 45%）则不定落、朝空隙侧弹开滑下（上限 2 次防夹缝卡死）——堆叠试过
+不做（实现复杂度跳档）。
+拎起时 z-index 99999→100000 压过其他桌宠，落定还原。物理 setX 钳位用实际
+渲染宽（硬编码 60 会把大个子推进墙，踩过）。落地/重撞有 WebAudio 闷响
+（`synthThud`，跟主音量/静音）。**大小**：皮肤可声明 `defaultSize`
+（奶龙 155，其余内置 120；自定义包 pack.json 皮肤级 `size` 字段），
+换皮肤（菜单/卡片同语义）大小落到新皮肤默认，用户再调优先；设置卡片
+大小是滑杆（72-200），多只时「配置对象」选择器带皮肤预览图选按只调。
+
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
 缺配回落 done=签名/poke=连跳）。dsh rc.7+ 走 settings scope（Host 持久化，
@@ -145,7 +179,7 @@ scope.set 乐观回显 pending 层）；更老版本回退 localStorage
   mp3 metadata（soundDur map），不是写死的。
 - 飞行中喊叫用 `imageFlyShout`（飞行张嘴帧）；没有张嘴图的皮肤跳过嘴型。
 - 连喊（shoutCount 1-3）：chain 递归，一声放完接下声（mouthShout 的 onDone）。
-- 合成叫声（moo/whale/squeak）是 WebAudio 实时合成，参数在 pet.ts 顶部
+- 合成叫声（moo/whale/squeak/meow）是 WebAudio 实时合成，参数在 pet.ts 顶部
   `synth*` 函数；AudioContext 在首次 pointerdown 暖场（自动播放策略）。
 
 ## 素材管线（tools/）
@@ -163,7 +197,7 @@ assets/ 与 lib/ 均入库。
   源是 AI 生图三视图（正面全身白底，用户提供）——近白阈值抠图 +
   腿部以下阴影区规则（防蹄底搭桥封腿缝）+ 腿缝泛洪清除（全填孔保嘴套高光），
   派生张嘴/眨眼。无角是设定：牛来幼时无角，勿当缺陷修掉。
-- `tools/drawn/`（奶牛/熊猫/鲸鱼，原创 SVG）：`node render.mjs x.svg out.png W H`
+- `tools/drawn/`（熊猫/鲸鱼等原创 SVG，含已移除奶牛的存档）：`node render.mjs x.svg out.png W H`
   渲染 + `python3 post.py` 预乘 alpha 降采样去白边；*.snip 是 blink/spout
   变体补丁；whale 参考图抓取 grab_ref.mjs。
 - 喊声降噪链（F 档，从原始 cut 重新生成）：
