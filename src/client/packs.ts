@@ -618,11 +618,11 @@ export class PackRegistry {
     this.snapshot = this.build()
   }
 
-  getSnapshot(): RegistrySnapshot {
-    return this.snapshot
-  }
+  // 箭头属性形态：消费端（useSyncExternalStore 等）以方法引用方式提取，
+  // 普通 class 方法会丢 this 炸「reading 'snapshot'」（踩过，设置卡片整卡崩溃）
+  readonly getSnapshot = (): RegistrySnapshot => this.snapshot
 
-  subscribe(fn: () => void): () => void {
+  readonly subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn)
     return () => { this.listeners.delete(fn) }
   }
