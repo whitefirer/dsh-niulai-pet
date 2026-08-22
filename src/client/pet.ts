@@ -20,6 +20,7 @@ import { ConfigStore, loadPersisted, savePersisted, type Persisted, type PetConf
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
 import { createKwsMatcher, kwsKeywordsKey } from './kws.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
+import { registerBody } from './physics.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
@@ -273,6 +274,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
   let sleepOn = initCfg.sleepEnabled
+  let physicsOn = initCfg.physics
   masterVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
@@ -1223,6 +1225,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
       { kind: 'bool', label: '💬 气泡唠叨', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
+      { kind: 'bool', label: '🧲 物理碰撞', on: physicsOn, fn: () => { config.set({ physics: !physicsOn }) } },
       { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
       { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
@@ -1235,11 +1238,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     // 多只桌宠（数据按只分存：皮肤/位置各自独立，行为配置全局共享）：
     // 主宠可加（连主上限 3 只），额外表可送走；增减由 index.ts 的实例管家落地
     const extraList = config.getSnapshot().extraPets
-    if (petId === 'main' && extraList.length < 2) {
+    const maxExtras = config.getSnapshot().maxPets - 1
+    if (petId === 'main' && extraList.length < maxExtras) {
       rows.splice(7, 0, {
         kind: 'action', label: '🐾 再添一只', fn: () => {
           const c = config.getSnapshot()
-          if (c.extraPets.length >= 2) return
+          if (c.extraPets.length >= c.maxPets - 1) return
           // 新宠皮肤用菜单正循环到的下一只（不然三只同款没有乐园感）
           config.set({ extraPets: [...c.extraPets, { id: `pet${Date.now().toString(36)}`, skin: nextSkin.id }] })
         },
@@ -1298,6 +1302,33 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const onResize = (): void => { clampX(); applyX() }
   window.addEventListener('resize', onResize)
 
+  /** 被撞反应：调头朝受推方向小跳（重撞=被砸/高速，跳更高），睡着先唤醒。 */
+  const bump = (dir: 1 | -1, strong: boolean): void => {
+    if (destroyed || mood === 'drag' || mood === 'fly') return
+    wakeFromSleep()
+    facing = dir
+    applyX()
+    void hop(strong ? 52 : 24, strong ? 460 : 280)
+  }
+
+  // 物理碰撞（配置开关，默认关）：注册进 physics 世界，挤压/弹飞由它的循环驱动
+  let unregisterBody: (() => void) | null = null
+  const syncPhysics = (): void => {
+    if (physicsOn && unregisterBody === null) {
+      unregisterBody = registerBody({
+        id: petId,
+        getX: () => x,
+        getW: () => root.getBoundingClientRect().width,
+        setX: (v) => { x = Math.min(Math.max(0, v), window.innerWidth - 60); applyX() },
+        bump,
+      })
+    } else if (!physicsOn && unregisterBody !== null) {
+      unregisterBody()
+      unregisterBody = null
+    }
+  }
+  syncPhysics()
+
   // 配置同步：菜单/设置卡片/迁移 seed 任一端改动，经 store 订阅收敛到
   // 局部镜像；皮肤变化换装；菜单开着时就地重建刷新显示值
   const syncConfig = (): void => {
@@ -1311,6 +1342,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     replyOn = c.replyNiulai
     sleepOn = c.sleepEnabled
     if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
+    physicsOn = c.physics
+    syncPhysics()
     masterVolume = c.volume
     voiceControlOn = c.voiceControl
     micGain = c.micGain // 增益不进重启 diff：voice 馈送路径逐块读，热生效
@@ -1377,6 +1410,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       destroyed = true
       unsubConfig()
       unsubSkins?.()
+      unregisterBody?.()
       keeper.disconnect()
       if (voice !== null) { voice.stop(); voice = null }
       window.clearTimeout(behaveTimer)

@@ -114,6 +114,10 @@ export const Config = z.object({
   sleepEnabled: z.boolean().default(true),
   /** 主宠之外的额外桌宠（每只 id+皮肤；连主上限 3 只，客户端再围栏）。 */
   extraPets: z.array(z.object({ id: z.string(), skin: z.string() })).default([]),
+  /** 物理碰撞：多只桌宠互相挤/弹飞（默认关）。 */
+  physics: z.boolean().default(false),
+  /** 桌宠数量上限（连主宠，1-9，默认 3）。 */
+  maxPets: z.number().step(1).min(1).max(9).default(3),
   /** 循环喊期间开麦，喊「牛来」即停（需 https/localhost + 麦克风授权）。 */
   voiceControl: z.boolean().default(false),
   /** 麦克风设备 id（空 = 系统默认；deviceId 按浏览器源发放，换浏览器缺此设备自动回落默认）。 */

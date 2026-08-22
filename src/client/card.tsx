@@ -36,6 +36,8 @@ const zh = {
   doneDelay: '完成延迟（秒）',
   shoutLoop: '循环喊到互动停止',
   sleepEnabled: '闲置打盹（变灰变矮）',
+  physics: '物理碰撞（互相挤/弹飞）',
+  maxPets: '桌宠数量上限',
   replyNiulai: '妈妈回应「牛来」',
   voiceControl: '语音停喊（喊「牛来」）',
   voiceEngine: '识别引擎',
@@ -120,6 +122,8 @@ const en: Record<keyof typeof zh, string> = {
   doneDelay: 'Done delay (s)',
   shoutLoop: 'Loop shout until touched',
   sleepEnabled: 'Idle nap (dims & squashes)',
+  physics: 'Pet physics (jostle & bounce)',
+  maxPets: 'Max pets on screen',
   replyNiulai: 'Mom answers "Niulai!"',
   voiceControl: 'Voice stop (shout "Niulai!")',
   voiceEngine: 'Recognition engine',
@@ -1010,6 +1014,13 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('sleepEnabled')}>
               <Switch on={cfg.sleepEnabled} disabled={disabled} label={t('sleepEnabled')} onChange={(on) => { props.set({ sleepEnabled: on }) }} />
+            </Row>
+            <Row label={t('physics')}>
+              <Switch on={cfg.physics} disabled={disabled} label={t('physics')} onChange={(on) => { props.set({ physics: on }) }} />
+            </Row>
+            <Row label={t('maxPets')}>
+              <NumberField value={cfg.maxPets} min={1} max={9} disabled={disabled} label={t('maxPets')}
+                onCommit={(n) => { props.set({ maxPets: n }) }} />
             </Row>
             <Row label={t('replyNiulai')}>
               <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
