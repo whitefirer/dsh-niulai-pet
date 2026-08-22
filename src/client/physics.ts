@@ -87,3 +87,19 @@ export function registerBody(b: PhysicsBody): () => void {
     ensureLoop()
   }
 }
+
+/** 砸落碰撞：x..x+w 砸中别只时对它触发 bump（strong 由坠落高度决定），返回是否砸中。
+ *  与主循环的水平接近速度检测互补——坠落是垂直事件，主循环感知不到。 */
+export function impactAt(selfId: string, x: number, w: number, strong: boolean): boolean {
+  let hit = false
+  for (const b of bodies.values()) {
+    if (b.id === selfId) continue
+    const overlap = Math.min(x + w, b.getX() + b.getW()) - Math.max(x, b.getX())
+    if (overlap > 4) {
+      hit = true
+      const dir = x + w / 2 <= b.getX() + b.getW() / 2 ? 1 : -1
+      b.bump(dir as 1 | -1, strong)
+    }
+  }
+  return hit
+}

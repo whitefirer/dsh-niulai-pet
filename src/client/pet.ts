@@ -20,7 +20,7 @@ import { ConfigStore, loadPersisted, savePersisted, type Persisted, type PetConf
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
 import { createKwsMatcher, kwsKeywordsKey } from './kws.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
-import { registerBody } from './physics.js'
+import { impactAt, registerBody } from './physics.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
@@ -1146,6 +1146,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let petStartX = 0
   let dragging = false
   let downAt = 0
+  /** 拎起高度（≤0，translateY 偏移）；拖拽垂直 1:1 跟随，松手重力坠落。 */
+  let liftY = 0
+  /** 坠落 rAF（0=不在坠落；坠落期 mood 保持 'drag' 挡 behave/动作）。 */
+  let fallRaf = 0
+  /** 拖拽末段指针采样（算松手水平初速度=抛掷）。 */
+  let moveSamples: Array<{ t: number; x: number }> = []
+  /** 最大拎起量（负值）：头顶留 24px。 */
+  const maxLiftAt = (): number => -(window.innerHeight - BOTTOM - PET_H - 24)
 
   root.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return
@@ -1154,6 +1162,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (menu.contains(ev.target as Node) || about.contains(ev.target as Node)) return
     dragging = false
     downAt = performance.now()
+    if (fallRaf !== 0) { cancelAnimationFrame(fallRaf); fallRaf = 0 } // 坠落中被薅住：接管
+    moveSamples = []
     pendingCelebrateGen++ // 任意上手互动（拖拽/点击预备）：延迟中的完成庆祝判死
     stopShoutLoop(true, '上手互动') // 任意上手互动（含拖拽与点击预备）都停循环喊，妈妈回一句
     dragStartX = ev.clientX
@@ -1180,10 +1190,66 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // root 变换是 translateX 叠 scaleX：屏幕位移与 x 恒 1:1，与朝向无关
       x = petStartX + dx
       clampX()
-      root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${Math.min(0, dy) * 0.3}px)`
+      // 垂直 1:1 跟随（可拎到半空，钳在视口内）；松手进入重力坠落
+      liftY = Math.max(maxLiftAt(), Math.min(0, dy))
+      root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
       img.style.transform = `rotate(${Math.max(-14, Math.min(14, dx / 8))}deg)`
+      moveSamples.push({ t: performance.now(), x: ev.clientX })
+      if (moveSamples.length > 4) moveSamples.shift()
     }
   })
+
+  /** 落地压扁回弹（坠落越深压越扁）；砸中别只按高度定撞击强度（physics.impactAt）。 */
+  const landSquash = (dropH: number): void => {
+    const deep = Math.min(0.35, dropH / 1200)
+    void img.animate(
+      [{ transform: 'scaleY(1)' }, { transform: `scaleY(${1 - deep})` }, { transform: 'scaleY(1)' }],
+      { duration: 260 + Math.min(220, dropH / 3), easing: 'ease-out' },
+    ).finished.catch(() => {})
+    impactAt(petId, x, root.getBoundingClientRect().width, dropH > 160)
+  }
+
+  /** 重力坠落：liftY 加速归零；松手水平初速度=抛掷（指数衰减）。
+   *  mood 保持 'drag' 到落地（behave/动作/睡眠全挡）；落地归位 + 压扁回弹 + 砸落碰撞。 */
+  const startFall = (): void => {
+    const s = moveSamples
+    let vx = 0
+    if (s.length >= 2) {
+      const dt = s[s.length - 1].t - s[0].t
+      if (dt > 0) vx = (s[s.length - 1].x - s[0].x) / dt
+    }
+    vx = Math.max(-1.2, Math.min(1.2, vx))
+    moveSamples = []
+    const dropH = -liftY
+    let vy = 0
+    let last = performance.now()
+    const step = (now: number): void => {
+      if (destroyed) return
+      const dt = Math.min(50, now - last)
+      last = now
+      vy += 0.0035 * dt // 重力加速度 px/ms²（400px 约 0.48s 落地）
+      liftY = Math.min(0, liftY + vy * dt)
+      if (vx !== 0) {
+        x += vx * dt
+        vx *= Math.pow(0.997, dt)
+        if (Math.abs(vx) < 0.02) vx = 0
+        clampX()
+      }
+      root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
+      if (liftY < 0) {
+        fallRaf = requestAnimationFrame(step)
+        return
+      }
+      fallRaf = 0
+      liftY = 0
+      mood = 'idle'
+      root.style.transform = `translateX(${x}px) scaleX(${facing})`
+      saveMyX(x)
+      landSquash(dropH)
+      if (!destroyed) breathe.play()
+    }
+    fallRaf = requestAnimationFrame(step)
+  }
 
   root.addEventListener('pointerup', (ev) => {
     const wasDragging = dragging
@@ -1193,12 +1259,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     root.style.cursor = 'grab'
     img.style.transform = ''
     if (wasDragging) {
-      mood = 'idle'
-      root.style.transform = `translateX(${x}px) scaleX(${facing})`
-      saveMyX(x)
-      // 落地回弹
-      void hop(20, 260)
-      if (!destroyed) breathe.play()
+      if (liftY < -8) {
+        startFall() // 拎起到半空松手：重力坠落（mood 保持 'drag' 到落地，自会归位保存）
+      } else {
+        mood = 'idle'
+        root.style.transform = `translateX(${x}px) scaleX(${facing})`
+        saveMyX(x)
+        // 落地回弹
+        void hop(20, 260)
+        if (!destroyed) breathe.play()
+      }
     } else if (quick) {
       poke()
     }
@@ -1411,6 +1481,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       unsubConfig()
       unsubSkins?.()
       unregisterBody?.()
+      if (fallRaf !== 0) cancelAnimationFrame(fallRaf)
       keeper.disconnect()
       if (voice !== null) { voice.stop(); voice = null }
       window.clearTimeout(behaveTimer)
