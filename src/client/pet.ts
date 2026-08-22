@@ -1268,15 +1268,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (menu.style.display === 'block') rebuildMenu()
   })
 
-  // 皮肤列表热更新：自定义角色包装载/增删后注册表推新列表；当前皮肤被删时
-  // findSkin 自动回落列表首（ConfigStore 白名单同步收窄，失效 skin 解析回默认）
+  // 皮肤列表热更新：自定义角色包装载/增删后注册表推新列表。
+  // 以**配置**为准重解析当前皮肤（不是拿旧皮肤 id 找自己——自定义包晚到时
+  // 配置里的皮肤刚被白名单放行，要换过去；当前皮肤被删时配置已回落默认）
   const unsubSkins = assets.subscribeSkins?.((next) => {
     if (destroyed || next.length === 0) return
     skins = next
     preloadAssets(skins)
-    const re = findSkin(skin.id)
-    if (re !== skin) {
-      skin = re
+    const want = findSkin(config.getSnapshot().skin)
+    if (want !== skin) {
+      skin = want
       if (mood !== 'fly') img.src = skinIdle()
     }
     if (menu.style.display === 'block') rebuildMenu()
