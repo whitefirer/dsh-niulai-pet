@@ -771,6 +771,8 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
   const assist = (): void => {
     const tas = [...document.querySelectorAll('textarea')]
       .filter((x): x is HTMLTextAreaElement => x instanceof HTMLTextAreaElement)
+      // 排除自己卡片里的输入框（语录框）——曾经把 prompt 填进语录框（踩过）
+      .filter((x) => x.closest('[data-niulai-card]') === null)
     const el = tas.find((x) => x.placeholder.includes('构建') && x.offsetParent !== null)
       ?? tas.find((x) => x.offsetParent !== null)
     const flash = (msg: string): void => {
@@ -959,7 +961,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const doneAction = cfg.actions[cfg.skin]?.done ?? skinDefaults.done
   const pokeAction = cfg.actions[cfg.skin]?.poke ?? skinDefaults.poke
   return (
-    <li style={{
+    <li data-niulai-card style={{
       listStyle: 'none', border: `1px solid ${colors.border}`, borderRadius: 12,
       background: colors.bgCard, transition: 'border-color .16s',
     }}>
