@@ -1,6 +1,6 @@
 {
   "name": "dsh-niulai-pet",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "dsh web desktop pet: a Niulai calf that lives in the corner, hops around, and moos \"mama\" when an agent task completes (client-only plugin)",
   "type": "module",
   "main": "./index.js",

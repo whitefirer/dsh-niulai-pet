@@ -78,7 +78,11 @@ const zh = {
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
   packs: '自定义角色',
-  packsHint: '导入 .nlpack.zip 角色包（制作指南见插件仓库 docs/skin-pack-schema.md）',
+  packsHint: '导入 .nlpack.zip 角色包；不会做包？看',
+  packsGuide: '制作指南',
+  packsAssist: '让 dsh 帮我做',
+  packsAssistDone: '已填进首页输入框，去发送吧',
+  packsAssistBusy: '首页输入框已有内容，未覆盖——清空后再点',
   packImport: '导入角色包',
   packImporting: '解析中…',
   packDelete: '删除',
@@ -155,7 +159,11 @@ const en: Record<keyof typeof zh, string> = {
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
   packs: 'Custom characters',
-  packsHint: 'Import .nlpack.zip character packs (authoring guide: docs/skin-pack-schema.md in the plugin repo)',
+  packsHint: 'Import .nlpack.zip character packs; new to pack authoring? See the',
+  packsGuide: 'authoring guide',
+  packsAssist: 'Let dsh build it',
+  packsAssistDone: 'Prompt filled into the home input — go send it',
+  packsAssistBusy: 'Home input has content — not overwritten; clear it and retry',
   packImport: 'Import pack',
   packImporting: 'Parsing…',
   packDelete: 'Delete',
@@ -734,15 +742,41 @@ function MicTest(props: {
   )
 }
 
-/** 自定义角色管理：导入（预览→警告确认→落库）、列表、删除。 */
+/** 制作指南地址（AI 辅助按钮把它喂给 dsh agent；hint 里也做可点链接）。 */
+const GUIDE_URL = 'https://github.com/whitefirer/dsh-niulai-pet/blob/master/SKIN_AUTHORING.md'
+
+/** 喂给 dsh 首页输入框的预制 prompt（指南自足，agent 读完即可带用户做包）。 */
+const ASSIST_PROMPT = `我想做一个 dsh 牛来桌宠的自定义角色包。请先读制作指南：${GUIDE_URL} ，然后一步步带我做：先问我角色叫什么、长什么样、要什么声音文案和动作；素材（透明底 png、mp3）你帮我生成和处理，逐张给我过目；最后打出 .nlpack.zip 给我，并告诉我去「设置 → 插件配置 → 牛来桌宠 → 自定义角色 → 导入角色包」。`
+
+/** 自定义角色管理：导入（预览→警告确认→落库）、列表、删除、dsh 辅助制作。 */
 function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCardProps['t'] }) {
   const { packs, t } = props
   const snap = useSyncExternalStore(packs.subscribe, packs.getSnapshot)
   const [busy, setBusy] = useState(false)
   const [errors, setErrors] = useState<string[] | null>(null)
   const [pending, setPending] = useState<{ def: CharacterDef; warnings: string[] } | null>(null)
+  const [assistMsg, setAssistMsg] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const customs = snap.characters.filter((c) => c.custom === true)
+
+  /** 把预制 prompt 填进 dsh 首页输入框（React 受控组件要走原生 setter + input 事件）。 */
+  const assist = (): void => {
+    const el = document.querySelector('textarea[placeholder*="构建"]') ?? document.querySelector('textarea')
+    if (!(el instanceof HTMLTextAreaElement)) return
+    if (el.value.trim() !== '') {
+      setAssistMsg(t('packsAssistBusy'))
+      return
+    }
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(el, ASSIST_PROMPT)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.focus()
+    // 关掉设置弹窗让输入框露出来（dsh 弹窗关闭钮内嵌 visually-hidden 文本「关闭」；
+    // 只按文本匹配，不用 aria-label——顶栏还有个 aria-label=关闭 的整窗按钮，点错完蛋）
+    const closeBtn = [...document.querySelectorAll('button')].find((b) => ['关闭', 'Close'].includes(b.textContent.trim()))
+    closeBtn?.click()
+    setAssistMsg(t('packsAssistDone'))
+    setTimeout(() => { setAssistMsg(null) }, 4000)
+  }
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const f = e.target.files?.[0]
@@ -779,12 +813,20 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
         <span style={{ fontSize: 13, color: colors.labelPrimary }}>{t('packs')}</span>
         <span style={{ display: 'inline-flex', gap: 8 }}>
           <input ref={fileRef} type="file" accept=".zip,.nlpack.zip" style={{ display: 'none' }} onChange={onFile} />
+          <button type="button" style={smallBtn} disabled={props.disabled} onClick={assist} title={GUIDE_URL}>
+            {t('packsAssist')}
+          </button>
           <button type="button" style={smallBtn} disabled={props.disabled || busy} onClick={() => { fileRef.current?.click() }}>
             {busy ? t('packImporting') : t('packImport')}
           </button>
         </span>
       </div>
-      <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('packsHint')}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>
+        {t('packsHint')}
+        <a href={GUIDE_URL} target="_blank" rel="noreferrer" style={{ color: colors.brand, textDecoration: 'none', margin: '0 2px' }}>{t('packsGuide')}</a>
+        。
+        {assistMsg !== null ? <span style={{ color: colors.labelTertiary }}>{assistMsg}</span> : null}
+      </div>
       {errors !== null
         ? (
           <div role="alert" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-state-error-primary, #ef4444)' }}>

@@ -126,6 +126,18 @@ export const BUILTIN_PACKS: CharacterDef[] = [
     ],
   },
   {
+    id: 'nailong',
+    name: '奶龙',
+    voice: { type: 'samples', sounds: [nailongLaugh] },
+    skins: [{
+      id: 'nailong', name: '奶龙', signature: 'sway', shoutBubble: '哈~哈~',
+      images: { stand: nailongImage, shout: nailongShout, blink: nailongBlink },
+      // 大笑演出：站捧腹抖肚 → 抱头弯腰 → 回抱肚渐弯 → 仰头 → 憋不住倒下 → 躺地蹬腿打滚
+      shoutAnim: [{ src: nailongAnim, at: 0 }],
+      quips: ['嘿嘿，今天也是快乐的一天', '捧腹大笑是基本功'],
+    }],
+  },
+  {
     id: 'cow',
     name: '奶牛',
     voice: { type: 'synth', preset: 'moo' },
@@ -153,18 +165,6 @@ export const BUILTIN_PACKS: CharacterDef[] = [
       id: 'whale', name: '蓝鲸', signature: 'breach', shoutBubble: '噗——！',
       images: { stand: whaleImage, blink: whaleBlink, spout: whaleSpout },
       quips: ['深海里没有 deadline', '咕嘟咕嘟'],
-    }],
-  },
-  {
-    id: 'nailong',
-    name: '奶龙',
-    voice: { type: 'samples', sounds: [nailongLaugh] },
-    skins: [{
-      id: 'nailong', name: '奶龙', signature: 'sway', shoutBubble: '哈~哈~',
-      images: { stand: nailongImage, shout: nailongShout, blink: nailongBlink },
-      // 大笑演出：站捧腹抖肚 → 抱头弯腰 → 回抱肚渐弯 → 仰头 → 憋不住倒下 → 躺地蹬腿打滚
-      shoutAnim: [{ src: nailongAnim, at: 0 }],
-      quips: ['嘿嘿，今天也是快乐的一天', '捧腹大笑是基本功'],
     }],
   },
 ]
