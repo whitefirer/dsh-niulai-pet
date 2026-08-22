@@ -854,19 +854,26 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
       {customs.length === 0 && errors === null
         ? <div style={{ marginTop: 8, fontSize: 12, color: colors.labelTertiary }}>{t('packEmpty')}</div>
         : null}
-      {customs.map((c) => (
-        <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8, fontSize: 12 }}>
-          <span style={{ color: colors.labelPrimary, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {c.name}
-            <span style={{ color: colors.labelTertiary }}>
-              {' '}v{c.version ?? '?'} · {t('packSkinCount', { n: c.skins.length })}
-              {c.author !== undefined ? ` · ${c.author}` : ''}
-              {c.extendedFrom !== undefined ? ` · ${t('packVariantOf', { base: c.extendedFrom })}` : ''}
+      {customs.map((c) => {
+        const thumb = c.skins[0]?.images.stand ?? ''
+        const sig = c.skins[0]?.signature ?? 'hops'
+        return (
+          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, fontSize: 12 }}>
+            {thumb !== ''
+              ? <img src={thumb} alt={c.name} style={{ width: 30, height: 30, objectFit: 'contain', flex: 'none', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.3))' }} />
+              : null}
+            <span style={{ color: colors.labelPrimary, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {c.name}
+              <span style={{ color: colors.labelTertiary }}>
+                {' '}v{c.version ?? '?'} · {t('packSkinCount', { n: c.skins.length })} · {t(`action.${sig}`)}
+                {c.author !== undefined ? ` · ${c.author}` : ''}
+                {c.extendedFrom !== undefined ? ` · ${t('packVariantOf', { base: c.extendedFrom })}` : ''}
+              </span>
             </span>
-          </span>
-          <button type="button" style={smallBtn} disabled={props.disabled} onClick={() => { remove(c) }}>{t('packDelete')}</button>
-        </div>
-      ))}
+            <button type="button" style={smallBtn} disabled={props.disabled} onClick={() => { remove(c) }}>{t('packDelete')}</button>
+          </div>
+        )
+      })}
     </div>
   )
 }

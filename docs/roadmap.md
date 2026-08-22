@@ -11,10 +11,11 @@
 > 皮肤列表热更新（pet subscribeSkins / card useSyncExternalStore /
 > ConfigStore.updateSkinIds 三路）。assets/ 已按角色分目录，内置角色与包同构。
 >
-> 剩余：
-> - 「让 dsh 帮我做皮肤」按钮（预填 prompt 进 dsh 聊天框，零 API 依赖）
-> - `SKIN_AUTHORING.md` 制作指南（schema + 素材规格 + AI 生成提示词附录）
-> - 小奶龙包实做验证全流程；大狗包验证 AI 素材生成链路
+> - ✅「让 dsh 帮我做皮肤」按钮（预制 prompt 填进 dsh 首页输入框，有关弹窗/草稿保护）
+> - ✅ `SKIN_AUTHORING.md` 制作指南（schema + 素材规格 + AI 生成提示词附录）
+> - ✅ 小奶龙包实做验证全流程（含逐帧 shoutAnim、警告确认流、刷新恢复、删除回落）
+> - ✅ 预览件：设置卡片包列表缩略图+属性摘要；demo 试玩页导入 zip 即时预览（不落库）
+> - 大狗包：不做内置，留给点菜用户用新链路自制（正好检验 AI 辅助实战）
 > - 远程 URL 导入 / 插件市场对接（后排）
 
 关联讨论：自定义颜色（纯色/渐变剪影皮肤，无需素材即可个性化）。
