@@ -21,6 +21,7 @@ import { decodeToPcm16k, encodeWav16kDataUrl, applySoftGain, FRAME_LEN, frameRms
 import { createKwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey } from './kws.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
+import type { HighlightBus } from './highlight.js'
 
 /** 卡片编辑的命名空间（与 host 半 settingsNamespace('niulai-pet') 配对，改名两边同步）。 */
 export const CARD_NS = 'niulai-pet'
@@ -74,18 +75,24 @@ const zh = {
   voiceDbgHit: '识别状态：刚才识别到「牛来」！',
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
-  talkative: '气泡唠叨',
+  talkative: '气泡',
+  hideAll: '隐藏全部桌宠',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
   skin: '皮肤',
   petTarget: '配置对象',
+  petTargetHint: '点我高亮这只桌宠',
   petMain: '主宠',
   petN: '桌宠',
   petSize: '桌宠大小',
+  petSizeReset: '重置',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
   packs: '自定义角色',
   packsHint: '导入 .nlpack.zip 角色包；不会做包？看',
+  packsSamplePre: '，或下个',
+  packsSample: '示例包',
+  packsSamplePost: '先试导入流程。',
   packsGuide: '制作指南',
   packsAssist: '让 dsh 帮我做',
   packsAssistDone: '已填进输入框，去发送吧',
@@ -112,7 +119,7 @@ const zh = {
   'action.hops': '连跳',
   'action.roll': '翻滚',
   'action.breach': '跃出水面',
-  'action.sway': '奶牛摇',
+  'action.sway': '摇摆',
   'action.random': '随机',
 }
 
@@ -164,18 +171,24 @@ const en: Record<keyof typeof zh, string> = {
   voiceDbgHit: 'Voice match: heard "Niulai!" just now',
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
-  talkative: 'Chatter bubbles',
+  talkative: 'Bubbles',
+  hideAll: 'Hide all pets',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
   skin: 'Skin',
   petTarget: 'Configure',
+  petTargetHint: 'Click to highlight this pet',
   petMain: 'Main pet',
   petN: 'Pet',
   petSize: 'Pet size',
+  petSizeReset: 'Reset',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
   packs: 'Custom characters',
   packsHint: 'Import .nlpack.zip character packs; new to pack authoring? See the',
+  packsSamplePre: ', or grab the ',
+  packsSample: 'sample pack',
+  packsSamplePost: ' to try the import flow.',
   packsGuide: 'authoring guide',
   packsAssist: 'Let dsh build it',
   packsAssistDone: 'Prompt filled into the input — go send it',
@@ -231,6 +244,8 @@ export interface NiulaiCardFace {
   /** 语音停喊调试状态（识别分/是否在听/命中时刻），pet 侧 publish。 */
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
   packs?: PacksFace
+  /** 点预览图高亮对应桌宠（pet.ts 认领）。 */
+  highlight?: { emit(petId: string): void }
 }
 
 /** 组件 props（框架 t 座 + 注入面绑定后的形态，结构化自描）。 */
@@ -241,6 +256,8 @@ export interface NiulaiCardProps {
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
   packs?: PacksFace
+  /** 点预览图高亮对应桌宠（pet.ts 认领）。 */
+  highlight?: { emit(petId: string): void }
 }
 
 /** 卡片状态源：合并 ConfigStore（生效配置）与 scope（ready/writable）为一个 observable。 */
@@ -254,6 +271,7 @@ class CardController {
     scope: SettingsScopeLike,
     private readonly voiceDebug?: VoiceDebugBus,
     private readonly packs?: PacksFace,
+    private readonly highlight?: HighlightBus,
   ) {
     this.state = this.project(scope)
     const rebuild = (): void => {
@@ -282,6 +300,7 @@ class CardController {
       set: (patch) => { this.store.set(patch) },
       voiceDebug: this.voiceDebug,
       packs: this.packs,
+      highlight: this.highlight,
       setSkinAction: (skin, event, action) => { this.store.setSkinAction(skin, event, action) },
     }
   }
@@ -449,6 +468,36 @@ function MicGainField(props: { value: number; disabled: boolean; label: string; 
         onBlur={commit}
       />
       <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 30, textAlign: 'right' }}>×{draft.toFixed(1)}</span>
+    </span>
+  )
+}
+
+/** 桌宠大小滑杆（72-200px，松手提交；样式同 VolumeField，标签 Npx）。 */
+function SizeField(props: { value: number; disabled: boolean; label: string; onCommit(n: number): void }) {
+  const [draft, setDraft] = useState(props.value)
+  const [dragging, setDragging] = useState(false)
+  if (!dragging && draft !== props.value) setDraft(props.value)
+  const commit = (): void => {
+    setDragging(false)
+    if (draft !== props.value) props.onCommit(draft)
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+      <input
+        type="range"
+        min={72}
+        max={200}
+        step={1}
+        aria-label={props.label}
+        disabled={props.disabled}
+        value={draft}
+        style={{ width: 110, accentColor: 'var(--dsw-alias-brand-primary, #3b82f6)', opacity: props.disabled ? 0.4 : 1 }}
+        onChange={(e) => { setDragging(true); setDraft(Number(e.target.value)) }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 34, textAlign: 'right' }}>{draft}px</span>
     </span>
   )
 }
@@ -762,6 +811,8 @@ function MicTest(props: {
 
 /** 制作指南地址（AI 辅助按钮把它喂给 dsh agent；hint 里也做可点链接）。 */
 const GUIDE_URL = 'https://github.com/whitefirer/dsh-niulai-pet/blob/master/SKIN_AUTHORING.md'
+/** 最小示例包（robot）：给想先试导入流程的用户。 */
+const SAMPLE_URL = 'https://github.com/whitefirer/dsh-niulai-pet/raw/master/docs/assets/robot.nlpack.zip'
 
 /** 喂给 dsh 首页输入框的预制 prompt（指南自足，agent 读完即可带用户做包）。 */
 const ASSIST_PROMPT = `我想做一个 dsh 牛来桌宠的自定义角色包。请先读制作指南：${GUIDE_URL} ，然后一步步带我做：先问我角色叫什么、长什么样、要什么声音文案和动作；素材（透明底 png、mp3）你帮我生成和处理，逐张给我过目；最后打出 .nlpack.zip 给我，并告诉我去「设置 → 插件配置 → 牛来桌宠 → 自定义角色 → 导入角色包」。`
@@ -858,7 +909,9 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
       <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>
         {t('packsHint')}
         <a href={GUIDE_URL} target="_blank" rel="noreferrer" style={{ color: colors.brand, textDecoration: 'none', margin: '0 2px' }}>{t('packsGuide')}</a>
-        。
+        {t('packsSamplePre')}
+        <a href={SAMPLE_URL} target="_blank" rel="noreferrer" style={{ color: colors.brand, textDecoration: 'none', margin: '0 2px' }}>{t('packsSample')}</a>
+        {t('packsSamplePost')}
         {assistMsg !== null ? <span style={{ color: colors.labelTertiary }}>{assistMsg}</span> : null}
       </div>
       {errors !== null
@@ -974,12 +1027,16 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
+  /** 当前对象皮肤的默认大小（重置按钮目标值）。 */
+  const targetDefaultSize = packSnap.skins.find((s) => s.id === target.skin)?.defaultSize ?? 120
   const targetDefaults = defaultActionsFor(packSnap.characters, target.skin)
   const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
   const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
   const setTargetSkin = (v: string): void => {
-    if (target.id === 'main') props.set({ skin: v })
-    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v } : p) })
+    // 换皮肤大小落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
+    const size = packSnap.skins.find((s) => s.id === v)?.defaultSize ?? 120
+    if (target.id === 'main') props.set({ skin: v, petSize: size })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size } : p) })
   }
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })
@@ -1040,7 +1097,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <Switch on={cfg.physics} disabled={disabled} label={t('physics')} onChange={(on) => { props.set({ physics: on }) }} />
             </Row>
             <Row label={t('maxPets')}>
-              <NumberField value={cfg.maxPets} min={1} max={9} disabled={disabled} label={t('maxPets')}
+              <NumberField value={cfg.maxPets} min={1} max={15} disabled={disabled} label={t('maxPets')}
                 onCommit={(n) => { props.set({ maxPets: n }) }} />
             </Row>
             <Row label={t('replyNiulai')}>
@@ -1131,27 +1188,50 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
             </Row>
+            <Row label={t('hideAll')}>
+              <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
+            </Row>
             <div style={{ padding: '9px 0' }}>
-              <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>{t('quips')}</div>
-              <QuipsField value={cfg.quips} disabled={disabled} placeholder={t('quipsHint')}
-                onCommit={(quips) => { props.set({ quips }) }} />
+              <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>
+                {petList.length > 1 ? `${t('quips')} · ${targetSkinName}` : t('quips')}
+              </div>
+              <QuipsField
+                value={target.id === 'main' ? cfg.quips : (cfg.extraPets.find((p) => p.id === target.id)?.quips ?? cfg.quips)}
+                disabled={disabled} placeholder={t('quipsHint')}
+                onCommit={(quips) => {
+                  // 语录按只存：额外表写自己条目（清空=跟随全局链），主宠写全局 quips
+                  if (target.id === 'main') props.set({ quips })
+                  else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, quips } : p) })
+                }} />
               <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('quipsHint')}</div>
             </div>
             {petList.length > 1
               ? (
                 <Row label={t('petTarget')}>
-                  <select
-                    style={selectStyle(disabled)}
-                    value={target.id}
-                    disabled={disabled}
-                    onChange={(e) => { setPetSel(e.target.value) }}
-                  >
-                    {petList.map((p, i) => (
-                      <option key={p.id} value={p.id} style={optionStyle}>
-                        {i === 0 ? t('petMain') : `${t('petN')} ${i + 1}`} · {packSnap.skins.find((s) => s.id === p.skin)?.name ?? p.skin}
-                      </option>
-                    ))}
-                  </select>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    {(() => {
+                      const img = packSnap.skins.find((s) => s.id === target.skin)?.image ?? ''
+                      return img !== ''
+                        ? (
+                          <img src={img} alt="" title={t('petTargetHint')}
+                            style={{ height: 32, display: 'block', cursor: 'pointer' }}
+                            onClick={() => { props.highlight?.emit(target.id) }} />
+                        )
+                        : null
+                    })()}
+                    <select
+                      style={selectStyle(disabled)}
+                      value={target.id}
+                      disabled={disabled}
+                      onChange={(e) => { setPetSel(e.target.value) }}
+                    >
+                      {petList.map((p, i) => (
+                        <option key={p.id} value={p.id} style={optionStyle}>
+                          {i === 0 ? t('petMain') : `${t('petN')} ${i + 1}`} · {packSnap.skins.find((s) => s.id === p.skin)?.name ?? p.skin}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                 </Row>
               )
               : null}
@@ -1165,9 +1245,25 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 {packSnap.skins.map((s) => <option key={s.id} value={s.id} style={optionStyle}>{s.name}</option>)}
               </select>
             </Row>
-            <Row label={t('petSize')}>
-              <NumberField value={target.size} min={72} max={200} disabled={disabled} label={t('petSize')}
-                onCommit={setTargetSize} />
+            <Row label={petList.length > 1 ? `${t('petSize')} · ${targetSkinName}` : t('petSize')}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <SizeField value={target.size} disabled={disabled} label={t('petSize')}
+                  onCommit={setTargetSize} />
+                {target.size !== targetDefaultSize
+                  ? (
+                    <button type="button" disabled={disabled}
+                      style={{
+                        font: 'inherit', fontSize: 12, padding: '3px 10px', borderRadius: 7,
+                        border: `1px solid ${colors.border}`, background: 'none',
+                        color: colors.labelPrimary, cursor: disabled ? 'default' : 'pointer',
+                        opacity: disabled ? 0.4 : 1,
+                      }}
+                      onClick={() => { setTargetSize(targetDefaultSize) }}>
+                      {t('petSizeReset')}
+                    </button>
+                  )
+                  : null}
+              </span>
             </Row>
             <Row label={`${t('doneAction')} · ${targetSkinName}`}>
               <select
@@ -1213,11 +1309,11 @@ interface CardCtx {
  * 注册双语字典、按 slot 声明生命周期注册卡片。rc.6 无这些服务时
  * 本函数所在的 ctx.inject 子 fiber 永不激活，什么都不会发生。
  */
-export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus, packs?: PacksFace): void {
+export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus, packs?: PacksFace, highlight?: HighlightBus): void {
   const scope = ctx.settingsScope.bind({ namespace: CARD_NS })
   ctx.effect(() => store.attachScope(scope), 'niulai-pet settings scope')
   ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), 'niulai-pet card locales')
-  const controller = new CardController(store, scope, voiceDebug, packs)
+  const controller = new CardController(store, scope, voiceDebug, packs, highlight)
   ctx.effect(() => () => { controller.dispose() }, 'niulai-pet card controller')
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',

@@ -1,7 +1,8 @@
 /**
  * 桌宠物理碰撞世界：body 注册表 + 单 rAF 循环。
- * 规则刻意简单（地面一维世界）：
- * - 重叠即分离（各推一半）——多只在同一地面线上走会互相「挤」
+ * 规则刻意简单（地面一维世界 + 高度门槛）：
+ * - 重叠即分离（各推一半）——多只在同一地面线上走会互相「挤」；
+ *   **垂直方向不搭界就不算碰**（底边离地 + 身高求重叠）：拎着越过头顶不推人
  * - 接近速度过阈触发 bump（小跳/调头）——快走撞上=弹开；飞行落点砸中别只=强 bump（弹飞）
  * - 每只 bump 有冷却，防贴脸抖动
  * 循环只在 ≥2 只注册时运行；全部注销即停。
@@ -14,6 +15,10 @@ export interface PhysicsBody {
   getX(): number
   /** 当前渲染宽（帧宽随动作变，活取）。 */
   getW(): number
+  /** 底边离地高度（px；被拎起/坠落中 >0，站立 =0）。 */
+  getLiftY(): number
+  /** 当前身高（px，≈petH）。 */
+  getH(): number
   /** 外部改 x（挤压分离用；实现方负责钳位与应用）。 */
   setX(x: number): void
   /** 被撞反应：dir=被推向的方向，strong=重撞（砸落/高速）。 */
@@ -40,7 +45,10 @@ function tick(): void {
       const b = list[j]
       const bx = b.getX()
       const overlap = Math.min(ax + a.getW(), bx + b.getW()) - Math.max(ax, bx)
-      if (overlap > 4) {
+      // 垂直搭界才算碰：底边离地 + 身高求重叠（拎着越过头顶不推人）
+      const vOverlap = Math.min(a.getLiftY() + a.getH(), b.getLiftY() + b.getH())
+        - Math.max(a.getLiftY(), b.getLiftY())
+      if (overlap > 4 && vOverlap > 0) {
         // 分离：各推一半（a 左 b 右时 dir=1：a 向左、b 向右）；
         // 被拎着的除外——它全推给对方（用户的手最大）
         const dir = ax <= bx ? 1 : -1
@@ -104,18 +112,25 @@ export function registerBody(b: PhysicsBody): () => void {
   }
 }
 
-/** 砸落碰撞：x..x+w 砸中别只时对它触发 bump（strong 由坠落高度决定），返回是否砸中。
- *  与主循环的水平接近速度检测互补——坠落是垂直事件，主循环感知不到。 */
-export function impactAt(selfId: string, x: number, w: number, strong: boolean): boolean {
+/** 砸落碰撞：x..x+w 砸中别只时对它触发 bump。
+ *  与主循环的水平接近速度检测互补——坠落是垂直事件，主循环感知不到。
+ *  dropH = 坠落总高度；压在别只头上时强度按**头顶上方落差**算（低处轻放=弱
+ *  bump，高处砸下=弹飞）。返回 hit=是否砸中；onHead=水平重叠过窄者 45%
+ *  （实打实压头，且对方站在地面）时的逃离方向（-1=左 1=右），未压头为 null。 */
+export function impactAt(selfId: string, x: number, w: number, dropH: number): { hit: boolean; onHead: 1 | -1 | null } {
   let hit = false
+  let onHead: 1 | -1 | null = null
   for (const b of bodies.values()) {
     if (b.id === selfId) continue
     const overlap = Math.min(x + w, b.getX() + b.getW()) - Math.max(x, b.getX())
     if (overlap > 4) {
       hit = true
+      const isHead = b.getLiftY() === 0 && overlap > 0.45 * Math.min(w, b.getW())
+      const strong = isHead ? dropH - b.getH() > 160 : dropH > 160
       const dir = x + w / 2 <= b.getX() + b.getW() / 2 ? 1 : -1
       b.bump(dir as 1 | -1, strong)
+      if (onHead === null && isHead) onHead = dir === 1 ? -1 : 1 // 压左半边往左滑，反之向右
     }
   }
-  return hit
+  return { hit, onHead }
 }

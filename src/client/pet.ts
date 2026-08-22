@@ -1,8 +1,8 @@
 /**
  * 桌宠本体：fixed 浮层 + Web Animations 状态机 + 数据驱动皮肤系统。
  *
- * 皮肤（SkinDef）：牛来（抠图+真声，签名连跳）、小黄（转圈）、奶牛（翻滚）、
- * 熊猫（翻滚）、蓝鲸（跃出水面），各带叫声（mp3 或 WebAudio 合成）。
+ * 皮肤（SkinDef）：牛来三皮肤（抠图+真声）、熊猫（翻滚）、蓝鲸（跃出水面）、
+ * 奶龙（帧演出大笑）、大狗（张嘴喊）、赛博猫（趴睡图），各带叫声（mp3 或 WebAudio 合成）。
  *  - idle：呼吸 + 随机小跳/踱步/趴睡/扭一扭 + 眨眼，偶尔气泡唠叨
  *  - walk / drag / sleep / fly（含 dive/arc 两种航迹）
  *  - celebrate：任务完成 —— 叫声 + 气泡（受开关/静音约束）+ 事件绑定动作
@@ -24,7 +24,7 @@ import { impactAt, registerBody } from './physics.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
-export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | null
+export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | 'meow' | null
 
 /** 可绑定到事件的动作。signature=当前皮肤签名动作。 */
 export type ActionName =
@@ -55,6 +55,8 @@ export interface SkinDef {
   imageFlyShout?: string
   /** 喷水图（鲸鱼 breach 弧顶喷水，可选）。 */
   imageSpout?: string
+  /** 专睡图（可选；配了它打盹换图不压扁——横躺姿态压扁反而怪）。 */
+  imageSleep?: string
   voice: VoiceName
   /** voice=mama 时的喊声 mp3（dataurl）若干。 */
   sounds?: string[]
@@ -66,6 +68,8 @@ export interface SkinDef {
   shoutBubble: string
   /** 皮肤专属唠叨语录（与全局语录合并）。 */
   quips?: string[]
+  /** 默认显示高度 px（角色包声明；选用该皮肤时大小落到它，用户另行调整优先）。 */
+  defaultSize?: number
 }
 
 export interface PetAssets {
@@ -79,6 +83,15 @@ export interface PetAssets {
   subscribeSkins?: (fn: (skins: SkinDef[]) => void) => () => void
   /** 皮肤的事件默认绑定（角色包 events 声明；缺省 done=signature / poke=hops）。 */
   defaultActions?: (skinGid: string) => { done: ActionName; poke: ActionName }
+  /** 「点预览图高亮」事件通道（设置卡片发，按 petId 认领）。 */
+  highlight?: { subscribe(fn: (petId: string) => void): () => void }
+  /** 强制皮肤/大小（demo 全家福等展示性挂载：绕开配置解析，直接长这样）。 */
+  forceSkin?: string
+  forceSize?: number
+  /** 飞行正常结束（落回原位）时回调——demo「一起飞」靠它在落地瞬间藏宠，零闪烁。 */
+  onFlightEnd?: () => void
+  /** 提供后右键菜单出现「👪 全家福」项（仅主宠传；插件入口/dsh 侧全家福管理）。 */
+  onFamilyToggle?: () => void
 }
 
 export interface PetHandle {
@@ -86,6 +99,18 @@ export interface PetHandle {
   celebrate(): void
   /** 主动戳一下（喊+绑定动作）。 */
   poke(): void
+  /** 飞一圈（demo「一起飞」等宿主 UI 用）。 */
+  fly(): void
+  /** 当前位姿（demo 全家福排兵/一起飞起降判定用）。 */
+  bounds(): { x: number; y: number; w: number }
+  /** 摆位（demo 全家福列队重排用；展示性挂载不写位置记忆）。 */
+  place(v: number): void
+  /** 显隐（demo 全家福先隐挂载、重排后显形，防列队瞬移闪烁）。 */
+  setVisible(v: boolean): void
+  /** 钉住：behave 不再随机游走（合影期间主宠占 C 位用）。 */
+  setPinned(on: boolean): void
+  /** 置顶：压过其他桌宠（合影 C 位不被叠压）；拖拽拎起也走这个档。 */
+  setTopmost(on: boolean): void
   /** AI 会话忙闲：忙时传入开始时间戳，闲时传 null（用于耗时气泡）。 */
   setBusy(busy: { since: number; label: string } | null): void
   /** 静音开关（试玩页角标等宿主 UI 用；与宠物菜单的「声音」同源）。 */
@@ -105,7 +130,7 @@ const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'brea
 export const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
 const ACTION_LABEL: Record<ActionName, string> = {
   signature: '签名动作', fly: '飞行', dance: '摇摆舞', spin: '转圈', hops: '连跳',
-  roll: '翻滚', breach: '跃出水面', sway: '奶牛摇', random: '随机',
+  roll: '翻滚', breach: '跃出水面', sway: '摇摆', random: '随机',
 }
 
 /** 全局气泡唠叨语录（与皮肤专属语录合并抽取）。 */
@@ -228,6 +253,49 @@ function synthSqueak(ctx: AudioContext): void {
   }
 }
 
+/** 喵——：锯齿波两段滑音（mi-ao 先扬后抑）+ 轻颤音 + 带通。 */
+function synthMeow(ctx: AudioContext): void {
+  const t0 = ctx.currentTime
+  const osc = ctx.createOscillator()
+  osc.type = 'sawtooth'
+  osc.frequency.setValueAtTime(520, t0)
+  osc.frequency.exponentialRampToValueAtTime(880, t0 + 0.22)
+  osc.frequency.exponentialRampToValueAtTime(360, t0 + 0.68)
+  const lfo = ctx.createOscillator()
+  lfo.frequency.value = 7
+  const lfoGain = ctx.createGain()
+  lfoGain.gain.value = 12
+  lfo.connect(lfoGain)
+  lfoGain.connect(osc.frequency)
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.frequency.value = 1100
+  bp.Q.value = 0.8
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(0.26, t0 + 0.06)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.75)
+  osc.connect(bp); bp.connect(g); g.connect(volDest(ctx))
+  osc.start(t0); lfo.start(t0)
+  osc.stop(t0 + 0.8); lfo.stop(t0 + 0.8)
+}
+
+/** 落地/碰撞闷响「咚」：低频正弦骤降 + 快衰减；strength 0-1 控峰值。 */
+function synthThud(ctx: AudioContext, strength: number): void {
+  const t0 = ctx.currentTime
+  const osc = ctx.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(110, t0)
+  osc.frequency.exponentialRampToValueAtTime(48, t0 + 0.1)
+  const g = ctx.createGain()
+  const peak = 0.22 * Math.max(0.15, Math.min(1, strength))
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16)
+  osc.connect(g); g.connect(volDest(ctx))
+  osc.start(t0); osc.stop(t0 + 0.18)
+}
+
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
   let skins = assets.skins.length > 0
     ? assets.skins
@@ -242,27 +310,33 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     skins.find((s) => s.id === id) ?? skins[0]
   /** 本宠 id（'main'=主宠；额外表按 id 分存皮肤与位置）。 */
   const petId = assets.petId ?? 'main'
-  /** 本宠皮肤 id：主宠读全局 skin；额外表读各自 pets 条目（缺条目回全局）。 */
+  /** 本宠皮肤 id：forceSkin（展示性挂载）最优先；主宠读全局 skin；额外表读各自条目（缺条目回全局）。 */
   const mySkinId = (c: PetConfig): string =>
-    petId === 'main' ? c.skin : (c.extraPets.find((p) => p.id === petId)?.skin ?? c.skin)
-  /** 本宠大小：主宠读 petSize；额外表读各自条目 size（缺省回 petSize）。 */
+    assets.forceSkin ?? (petId === 'main' ? c.skin : (c.extraPets.find((p) => p.id === petId)?.skin ?? c.skin))
+  /** 本宠大小：forceSize 最优先；主宠读 petSize；额外表读各自条目 size（缺省回 petSize）。 */
   const mySize = (c: PetConfig): number =>
-    petId === 'main' ? c.petSize : (c.extraPets.find((p) => p.id === petId)?.size ?? c.petSize)
-  /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。 */
+    assets.forceSize ?? (petId === 'main' ? c.petSize : (c.extraPets.find((p) => p.id === petId)?.size ?? c.petSize))
+  /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
+   *  换皮肤时大小落到新皮肤的默认（用户之后再调优先；皮肤高矮是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
+    const size = skins.find((s) => s.id === skin)?.defaultSize ?? 120
     if (petId === 'main') {
-      config.set({ skin })
+      config.set({ skin, petSize: size })
       return
     }
-    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin } : p)
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size } : p)
     config.set({ extraPets: list })
   }
-  /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。 */
+  /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。
+   *  展示性挂载（forceSkin，demo 全家福）不读不写位置记忆——列队位置由 demo 排。 */
+  const demoDoll = assets.forceSkin !== undefined
   const loadMyX = (): number | undefined => {
+    if (demoDoll) return undefined
     const doc = loadDoc()
     return petId === 'main' ? doc.x : doc.xByPet?.[petId]
   }
   const saveMyX = (v: number): void => {
+    if (demoDoll) return
     const doc = loadDoc()
     if (petId === 'main') savePersisted({ ...doc, x: v })
     else savePersisted({ ...doc, xByPet: { ...doc.xByPet, [petId]: v } })
@@ -279,6 +353,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let replyOn = initCfg.replyNiulai
   let sleepOn = initCfg.sleepEnabled
   let physicsOn = initCfg.physics
+  let hiddenAll = initCfg.hidden
   masterVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
@@ -289,6 +364,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let micGain = initCfg.micGain
   let mood: Mood = 'idle'
   let destroyed = false
+  /** 钉住中（合影 C 位）：behave 不随机游走。 */
+  let pinned = false
   let busyInfo: { since: number; label: string } | null = null
 
   const cur = (): SkinDef => skin
@@ -409,6 +486,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         probe.src = src
       }
       preloadW(s.image)
+      if (s.imageSleep !== undefined) preloadW(s.imageSleep)
       for (const f of s.shoutAnim ?? []) preloadW(f.src)
     }
   }
@@ -435,11 +513,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       const d = soundDur.get(src)
       return d !== undefined ? Math.round(d * 1000) + 150 : 2600
     }
-    if (s.voice === 'moo' || s.voice === 'whale' || s.voice === 'squeak') {
+    if (s.voice === 'moo' || s.voice === 'whale' || s.voice === 'squeak' || s.voice === 'meow') {
       const ctx = audioCtx()
       if (ctx === null) return 0
       if (s.voice === 'moo') { synthMoo(ctx); return 950 }
       if (s.voice === 'whale') { synthWhale(ctx); return 1650 }
+      if (s.voice === 'meow') { synthMeow(ctx); return 800 }
       synthSqueak(ctx)
       return 450
     }
@@ -475,8 +554,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   )
 
   let bubbleTimer = 0
-  const showBubble = (text: string, ms: number): void => {
+  /** system=true 的是用户动作的反馈泡（设置指路/语音命中噤声），不受「气泡」开关管。 */
+  const showBubble = (text: string, ms: number, system = false): void => {
     if (text === '') return
+    if (!system && !talkative) return // 装饰性气泡（喊声/回话/唠叨）随开关关闭
     bubble.textContent = text
     root.style.setProperty('--pop', '1')
     window.clearTimeout(bubbleTimer)
@@ -648,7 +729,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (!destroyed) breathe.play()
   }
 
-  /** 奶牛摇（波兰牛 meme）：脚底支点大振幅快节拍摇摆。 */
+  /** 摇摆（波兰牛 meme）：脚底支点大振幅快节拍摇摆。 */
   const sway = async (): Promise<void> => {
     breathe.pause()
     await img.animate(
@@ -760,18 +841,30 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (mood !== 'idle' || shouting || animRolling) return // 叫唤着/演出滚放着不许睡：压扁+变暗会把演出演成梦游
     mood = 'sleep'
     breathe.pause()
-    const squash = img.animate(
-      [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.78)' }],
-      { duration: 500, fill: 'forwards', easing: 'ease-out' },
-    )
-    sleepAnim = squash
-    await squash.finished.catch(() => {})
+    const sleepSrc = cur().imageSleep
+    let squash: Animation | null = null
+    if (sleepSrc !== undefined) {
+      img.src = sleepSrc // 专睡图：换图不压扁（横躺姿态压了反而怪），只压暗
+    } else {
+      squash = img.animate(
+        [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.78)' }],
+        { duration: 500, fill: 'forwards', easing: 'ease-out' },
+      )
+      sleepAnim = squash
+      await squash.finished.catch(() => {})
+    }
     img.style.filter = 'brightness(.82)'
     await new Promise((r) => window.setTimeout(r, ms))
     if (destroyed) return
     img.style.filter = ''
     if (mood !== 'sleep') {
-      squash.cancel() // 被打断：解除压扁，不抢 transform 与 mood
+      squash?.cancel() // 被打断：解除压扁，不抢 transform 与 mood（专睡图由 wakeFromSleep 换回来）
+      return
+    }
+    if (sleepSrc !== undefined) {
+      img.src = skinIdle()
+      breathe.play()
+      mood = 'idle'
       return
     }
     const wake = img.animate(
@@ -779,7 +872,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { duration: 420, fill: 'forwards', easing: 'ease-out' },
     )
     await wake.finished.catch(() => {})
-    squash.cancel()
+    squash?.cancel()
     wake.cancel()
     breathe.play()
     mood = 'idle'
@@ -791,6 +884,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (mood !== 'sleep') return
     mood = 'idle' // sleepFor 的延时醒来检查见此即走「被打断」路径归位
     img.style.filter = ''
+    if (cur().imageSleep !== undefined) img.src = skinIdle() // 专睡图换回来
     sleepAnim?.cancel()
     sleepAnim = null
     breathe.play()
@@ -809,8 +903,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     root.style.setProperty('--face', String(dir)) // 气泡文字靠它抵消镜像
     const startX = dir === 1 ? -200 : window.innerWidth + 120
     const endX = dir === 1 ? window.innerWidth + 120 : -200
-    const amp = window.innerHeight * 0.42 // 弧顶高度
-    const dur = 2600
+    const amp = window.innerHeight * (0.22 + Math.random() * 0.4) // 弧顶高度=航道（0.22~0.62 屏高，多只在飞不叠层）
+    const dur = 2000 + Math.random() * 1600 // 时长抖动，多只在飞时自然错开
     const start = performance.now()
     let spouted = false
     await new Promise<void>((resolve) => {
@@ -848,16 +942,18 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       requestAnimationFrame(step)
     })
     if (destroyed) return
-    if (mood !== 'fly') return // 飞行中被拎走/接管：不抢状态
+    if (mood !== 'fly') return // 飞行中被拎走/接管：不抢状态（也不发落地回调）
     x = homeX
     img.style.transform = ''
     img.src = skinIdle()
     applyX()
     breathe.play()
     mood = 'idle'
+    assets.onFlightEnd?.() // 与 applyX 同一同步段：落地即藏也不会闪一帧
   }
 
-  const flyAcross = (): Promise<void> => flight('dive')
+  /** 菜单/一起飞：路线随机（dive 抛物线 / arc 跃出弧），方向与时长见 flight 内随机。 */
+  const flyAcross = (): Promise<void> => flight(Math.random() < 0.7 ? 'dive' : 'arc')
 
   /** 皮肤的事件默认绑定（角色包 events 声明；无声明回落 signature/hops）。 */
   const defaultsOf = (gid: string): { done: ActionName; poke: ActionName } =>
@@ -898,7 +994,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       const rollDie = Math.random()
       if (rollDie < 0.3) {
         void hop(26, 300) // 原地小跳
-      } else if (rollDie < 0.62) {
+      } else if (rollDie < 0.62 && !demoDoll && !pinned) {
+        // 展示性挂载（全家福列队）与被钉住的（合影 C 位主宠）不游走，站在位槽里
         clampX()
         const span = Math.min(260, window.innerWidth * 0.2)
         const target = Math.min(Math.max(0, x + (Math.random() * 2 - 1) * span * 2), window.innerWidth - 70)
@@ -926,8 +1023,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         const sec = Math.floor((Date.now() - busyInfo.since) / 1000)
         if (sec >= 30) showBubble(`「${busyInfo.label}」的AI已经跑了 ${fmtDur(sec)}…`, 2800)
       } else if (Math.random() < 0.6) {
-        // 自定义语录非空时替换内置通用池；皮肤专属语录始终并入
-        const custom = config.getSnapshot().quips
+        // 语录按只解析：本只专属 → 全局自定义 → 内置通用池；皮肤专属语录始终并入
+        const c = config.getSnapshot()
+        const custom = petId === 'main' ? c.quips : (c.extraPets.find((p) => p.id === petId)?.quips ?? c.quips)
         const pool = (custom.length > 0 ? custom : QUIPS).concat(cur().quips ?? [])
         showBubble(pool[Math.floor(Math.random() * pool.length)], 2400)
       }
@@ -1023,7 +1121,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         cutPlayingShout() // 用户已应声：当场掐断在播的「妈妈」和剩余连喊
         stopShoutLoop(false, '语音命中')
         // 噤声一幕：嘘——（不播录音：妈妈那句是用户亲口喊的）
-        showBubble('😷 唔——', 2000)
+        showBubble('😷 唔——', 2000, true)
         if (mood === 'idle') void hop(26, 300)
       },
       // 报分节流：评估每 50ms 一次，卡片状态行 300ms 一刷足够
@@ -1123,7 +1221,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     fireCelebrate()
   }
 
-  /** 只喊不跳（菜单「喊一声」/戳一下的出声部分）：嘴部张合与气泡都撑满喊声全长，
+  /** 只喊不跳（戳一下的出声部分）：嘴部张合与气泡都撑满喊声全长，
    *  喊完妈妈回一句（开关控制；loop 打断已回过的不重复）。
    *  再喊先掐旧的：叠着放 = 两重唱（长笑声被连戳时尤其灾难）。 */
   const shout = (): void => {
@@ -1191,6 +1289,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 此前无差别换站立图，演出画面没了笑声还在放（踩过）
       if (wasFlying) img.src = skinIdle()
       root.style.cursor = 'grabbing'
+      root.style.zIndex = '100000' // 拎起的压过其他桌宠，落定还原（startFall/落地分支）
     }
     if (dragging) {
       // root 变换是 translateX 叠 scaleX：屏幕位移与 x 恒 1:1，与朝向无关
@@ -1199,24 +1298,33 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 垂直 1:1 跟随（可拎到半空，钳在视口内）；松手进入重力坠落
       liftY = Math.max(maxLiftAt(), Math.min(0, dy))
       root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
-      img.style.transform = `rotate(${Math.max(-14, Math.min(14, dx / 8))}deg)`
-      moveSamples.push({ t: performance.now(), x: ev.clientX })
+      // 拖拽倾斜按瞬时速度（拎静止自动回正；以前按总位移，拎在半空一直歪着）
+      const nowT = performance.now()
+      const prevS = moveSamples[moveSamples.length - 1]
+      const instV = prevS !== undefined && nowT > prevS.t ? (ev.clientX - prevS.x) / (nowT - prevS.t) : 0
+      img.style.transform = `rotate(${Math.max(-16, Math.min(16, instV * 34))}deg)`
+      moveSamples.push({ t: nowT, x: ev.clientX })
       if (moveSamples.length > 4) moveSamples.shift()
     }
   })
 
-  /** 落地压扁回弹（坠落越深压越扁）；砸中别只按高度定撞击强度（physics.impactAt）。 */
+  /** 落地压扁回弹（坠落越深压越扁）+ 闷响（深度定音量）。砸落碰撞在 startFall 首次触地时触发。 */
   const landSquash = (dropH: number): void => {
     const deep = Math.min(0.35, dropH / 1200)
     void img.animate(
       [{ transform: 'scaleY(1)' }, { transform: `scaleY(${1 - deep})` }, { transform: 'scaleY(1)' }],
       { duration: 260 + Math.min(220, dropH / 3), easing: 'ease-out' },
     ).finished.catch(() => {})
-    impactAt(petId, x, root.getBoundingClientRect().width, dropH > 160)
+    if (!muted && dropH > 30) {
+      const ctx = audioCtx()
+      if (ctx !== null) synthThud(ctx, Math.min(1, dropH / 500))
+    }
   }
 
   /** 重力坠落：liftY 加速归零；松手水平初速度=抛掷（指数衰减）。
-   *  mood 保持 'drag' 到落地（behave/动作/睡眠全挡）；落地归位 + 压扁回弹 + 砸落碰撞。 */
+   *  mood 保持 'drag' 到落地（behave/动作/睡眠全挡）；坠落期按水平速度顺势倾斜；
+   *  首次触地判砸落碰撞——压实在别只头上时不落定，朝空隙侧弹开滑下（上限 2 次防卡死）；
+   *  落定才归位直立 + 压扁回弹 + z 序还原。 */
   const startFall = (): void => {
     const s = moveSamples
     let vx = 0
@@ -1228,6 +1336,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     moveSamples = []
     const dropH = -liftY
     let vy = 0
+    let impacted = false // 砸落碰撞只在首次触地判定（弹开后不重复砸）
+    let bounces = 0
     let last = performance.now()
     const step = (now: number): void => {
       if (destroyed) return
@@ -1241,14 +1351,30 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         if (Math.abs(vx) < 0.02) vx = 0
         clampX()
       }
+      // 坠落姿态：随水平速度倾斜（抛出方向），落定才回正
+      img.style.transform = vx !== 0 ? `rotate(${Math.max(-22, Math.min(22, vx * 26))}deg)` : ''
       root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
       if (liftY < 0) {
         fallRaf = requestAnimationFrame(step)
         return
       }
+      if (!impacted) {
+        impacted = true
+        const { onHead } = impactAt(petId, x, root.getBoundingClientRect().width, dropH)
+        if (onHead !== null && bounces < 2) {
+          bounces++
+          vx = onHead * (0.25 + Math.random() * 0.15)
+          vy = -(0.08 + Math.min(0.08, dropH / 6000))
+          liftY = -1
+          fallRaf = requestAnimationFrame(step)
+          return
+        }
+      }
       fallRaf = 0
       liftY = 0
       mood = 'idle'
+      img.style.transform = ''
+      root.style.zIndex = '99999'
       root.style.transform = `translateX(${x}px) scaleX(${facing})`
       saveMyX(x)
       landSquash(dropH)
@@ -1269,6 +1395,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         startFall() // 拎起到半空松手：重力坠落（mood 保持 'drag' 到落地，自会归位保存）
       } else {
         mood = 'idle'
+        liftY = 0 // 微抬直接放：归零，否则后续 applyX 会把残留的几 px 悬浮量写回去
+        root.style.zIndex = '99999'
         root.style.transform = `translateX(${x}px) scaleX(${facing})`
         saveMyX(x)
         // 落地回弹
@@ -1299,16 +1427,20 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
       { kind: 'bool', label: '📣 完成时喊', on: shoutOnDone, fn: () => { config.set({ shoutOnDone: !shoutOnDone }) } },
       { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
-      { kind: 'bool', label: '💬 气泡唠叨', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
+      { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
       { kind: 'bool', label: '🧲 物理碰撞', on: physicsOn, fn: () => { config.set({ physics: !physicsOn }) } },
+      { kind: 'bool', label: '🙈 隐藏全部', on: hiddenAll, fn: () => { config.set({ hidden: !hiddenAll }) } },
       { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
       { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
-      { kind: 'action', label: '📢 喊一声', fn: () => { shout() } },
+      { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (!animTakesOver()) runAction('signature') } },
+      ...(assets.onFamilyToggle !== undefined
+        ? [{ kind: 'action', label: '👪 全家福', fn: () => { assets.onFamilyToggle?.() } } as Row]
+        : []),
       // 找不到打开设置页的宿主 API（rc.7 无此服务），气泡指路代替跳转
-      { kind: 'action', label: '⚙️ 设置', fn: () => { showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200) } },
+      { kind: 'action', label: '⚙️ 设置', fn: () => { showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200, true) } },
       { kind: 'action', label: 'ℹ️ 关于', fn: () => { about.style.display = about.style.display === 'block' ? 'none' : 'block' } },
     ]
     // 多只桌宠（数据按只分存：皮肤/位置各自独立，行为配置全局共享）：
@@ -1378,24 +1510,31 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const onResize = (): void => { clampX(); applyX() }
   window.addEventListener('resize', onResize)
 
-  /** 被撞反应：调头朝受推方向小跳（重撞=被砸/高速，跳更高），睡着先唤醒。 */
+  /** 被撞反应：调头朝受推方向小跳（重撞=被砸/高速，跳更高 + 闷响），睡着先唤醒。 */
   const bump = (dir: 1 | -1, strong: boolean): void => {
     if (destroyed || mood === 'drag' || mood === 'fly') return
     wakeFromSleep()
     facing = dir
     applyX()
     void hop(strong ? 52 : 24, strong ? 460 : 280)
+    if (strong && !muted) {
+      const ctx = audioCtx()
+      if (ctx !== null) synthThud(ctx, 0.6)
+    }
   }
 
   // 物理碰撞（配置开关，默认关）：注册进 physics 世界，挤压/弹飞由它的循环驱动
   let unregisterBody: (() => void) | null = null
   const syncPhysics = (): void => {
-    if (physicsOn && unregisterBody === null) {
+    if (physicsOn && unregisterBody === null && !demoDoll) { // 展示性挂载（全家福）不进物理世界：列队不被挤散
       unregisterBody = registerBody({
         id: petId,
         getX: () => x,
         getW: () => root.getBoundingClientRect().width,
-        setX: (v) => { x = Math.min(Math.max(0, v), window.innerWidth - 60); applyX() },
+        getLiftY: () => -liftY, // liftY 是负值上移量，物理世界要底边离地正高度
+        getH: () => petH,
+        // 钳位用实际渲染宽（曾硬编码 60：大个子/倒地宽帧会被推进右墙或留缝）
+        setX: (v) => { x = Math.min(Math.max(0, v), Math.max(0, window.innerWidth - root.getBoundingClientRect().width)); applyX() },
         bump,
         held: () => dragging || fallRaf !== 0,
       })
@@ -1420,6 +1559,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     sleepOn = c.sleepEnabled
     if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
     physicsOn = c.physics
+    hiddenAll = c.hidden
+    root.style.display = c.hidden ? 'none' : '' // 隐藏全部（配置全局共享，所有实例同步隐没）
     syncPhysics()
     masterVolume = c.volume
     voiceControlOn = c.voiceControl
@@ -1462,12 +1603,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   // 皮肤列表热更新：自定义角色包装载/增删后注册表推新列表。
   // 以**配置**为准重解析当前皮肤（不是拿旧皮肤 id 找自己——自定义包晚到时
-  // 配置里的皮肤刚被白名单放行，要换过去；当前皮肤被删时配置已回落默认）
+  // 配置里的皮肤刚被白名单放行，要换过去；当前皮肤被删时配置已回落默认）。
+  // 必须按本宠 id 解析（mySkinId）——曾错用全局 skin 字段，包一变更额外表
+  // 全变成主宠皮肤，整页刷新才恢复（踩过）。
   const unsubSkins = assets.subscribeSkins?.((next) => {
     if (destroyed || next.length === 0) return
     skins = next
     preloadAssets(skins)
-    const want = findSkin(config.getSnapshot().skin)
+    const want = findSkin(mySkinId(config.getSnapshot()))
     if (want !== skin) {
       skin = want
       if (mood !== 'fly') img.src = skinIdle()
@@ -1475,9 +1618,32 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (menu.style.display === 'block') rebuildMenu()
   })
 
+  // 设置卡片点预览图：对应桌宠发光脉冲两下 + 原地小跳（拖拽/飞行中只发光不打断）
+  const unsubHighlight = assets.highlight?.subscribe((id) => {
+    if (destroyed || id !== petId) return
+    void root.animate(
+      [
+        { filter: 'drop-shadow(0 3px 6px rgba(0,0,0,.35))' },
+        { filter: 'drop-shadow(0 0 18px rgba(242,177,56,.95))', offset: 0.25 },
+        { filter: 'drop-shadow(0 3px 6px rgba(0,0,0,.35))', offset: 0.5 },
+        { filter: 'drop-shadow(0 0 18px rgba(242,177,56,.95))', offset: 0.75 },
+        { filter: 'drop-shadow(0 3px 6px rgba(0,0,0,.35))' },
+      ],
+      { duration: 1200, easing: 'ease-in-out' },
+    ).finished.catch(() => {})
+    if (mood === 'idle') void hop(30, 320)
+  })
+
   return {
     celebrate,
     poke,
+    fly() { void flyAcross() },
+    bounds() { const r = root.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width } },
+    /** 摆位（全家福列队重排用；展示性挂载不写位置记忆，主宠等常规模糊落盘——收起合影要能回原位）。 */
+    place(v: number) { x = v; clampX(); applyX(); if (!demoDoll) saveMyX(x) },
+    setPinned(on: boolean) { pinned = on },
+    setTopmost(on: boolean) { root.style.zIndex = on ? '100001' : '99999' },
+    setVisible(v: boolean) { root.style.visibility = v ? '' : 'hidden' },
     setBusy(busy) {
       busyInfo = busy
       if (busy !== null) {
@@ -1495,6 +1661,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       destroyed = true
       unsubConfig()
       unsubSkins?.()
+      unsubHighlight?.()
       unregisterBody?.()
       if (fallRaf !== 0) cancelAnimationFrame(fallRaf)
       keeper.disconnect()

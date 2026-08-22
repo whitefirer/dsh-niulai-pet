@@ -110,20 +110,24 @@ export const Config = z.object({
   shoutLoop: z.boolean().default(false),
   /** 喊完（或循环喊被互动打断）时妈妈回一句「牛来！」（默认开）。 */
   replyNiulai: z.boolean().default(true),
-  /** 闲置打盹：开着时无聊会压扁变暗小睡（默认开；关掉永远精神）。 */
-  sleepEnabled: z.boolean().default(true),
-  /** 主宠之外的额外桌宠（每只 id+皮肤+大小；连主上限 maxPets，客户端再围栏）。 */
+  /** 闲置打盹：开着时无聊会压扁变暗小睡（默认关；开了才会打盹）。 */
+  sleepEnabled: z.boolean().default(false),
+  /** 主宠之外的额外桌宠（每只 id+皮肤+大小+语录；连主上限 maxPets，客户端再围栏）。 */
   extraPets: z.array(z.object({
     id: z.string(),
     skin: z.string(),
     size: z.number().step(1).min(72).max(200).default(120),
+    /** 本只专属唠叨语录（空 = 跟随全局 quips 链：全局自定义 → 内置池）。 */
+    quips: z.array(z.string()).default([]),
   })).default([]),
   /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
   petSize: z.number().step(1).min(72).max(200).default(120),
   /** 物理碰撞：多只桌宠互相挤/弹飞（默认关）。 */
   physics: z.boolean().default(false),
-  /** 桌宠数量上限（连主宠，1-9，默认 3）。 */
-  maxPets: z.number().step(1).min(1).max(9).default(3),
+  /** 隐藏全部桌宠（默认关；开着时从设置卡片喊回来）。 */
+  hidden: z.boolean().default(false),
+  /** 桌宠数量上限（连主宠，1-15，默认 10）。 */
+  maxPets: z.number().step(1).min(1).max(15).default(10),
   /** 循环喊期间开麦，喊「牛来」即停（需 https/localhost + 麦克风授权）。 */
   voiceControl: z.boolean().default(false),
   /** 麦克风设备 id（空 = 系统默认；deviceId 按浏览器源发放，换浏览器缺此设备自动回落默认）。 */

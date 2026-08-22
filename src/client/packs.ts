@@ -2,7 +2,8 @@
  * 角色包注册表：两级模型（角色 = 声音/动作/事件/语录，皮肤 = 外观）的运行时核心。
  *
  * - 内置角色：以包结构在 TS 里定义（BUILTIN_PACKS），素材 esbuild dataurl 内联；
- *   内置皮肤的**全局 id 沿用历史值**（niulai/orig/young/cow/panda/whale/nailong），
+ *   内置皮肤的**全局 id 沿用历史值**（niulai/orig/young/panda/whale/nailong/dagou/cat；
+ *   奶牛 2026-08-23 起移除——与牛来形象重叠，存量 cow 配置由白名单围栏回落默认皮肤），
  *   存量配置（skin 字段、actions 键）零迁移。
  * - 自定义包：zip 导入（parsePack），校验通过转 dataurl 进 IndexedDB，
  *   皮肤全局 id = `角色id/皮肤id`；派生包（type=variant）deep merge 到目标角色。
@@ -33,8 +34,6 @@ import petYoungFlyShout from '../../assets/niulai/skins/young/pet_young_fly_shou
 import mama1 from '../../assets/niulai/mama1.mp3'
 import mama2 from '../../assets/niulai/mama2.mp3'
 import replyNiulai from '../../assets/niulai/reply.mp3'
-import cowImage from '../../assets/cow/skins/default/cow.png'
-import cowBlink from '../../assets/cow/skins/default/cow_blink.png'
 import pandaImage from '../../assets/panda/skins/default/panda.png'
 import pandaBlink from '../../assets/panda/skins/default/panda_blink.png'
 import whaleImage from '../../assets/whale/skins/default/whale.png'
@@ -44,9 +43,25 @@ import nailongImage from '../../assets/nailong/skins/default/nailong.png'
 import nailongBlink from '../../assets/nailong/skins/default/nailong_blink.png'
 import nailongShout from '../../assets/nailong/skins/default/nailong_shout.png'
 import nailongLaugh from '../../assets/nailong/nailong_laugh.mp3'
-// 奶龙大笑演出：bv2 大笑切片 5–16s 抽 111 帧清洗后合成的动画 webp（10fps 循环，
-// 单文件原生播放；at:0 一帧即整场演出，逐帧时间轴交给 webp 自己走）
+// 奶龙大笑演出：bv2 大笑切片 5–16s 抽 111 帧清洗合成，后按 15.65s 完整笑声乒乓补
+// 打滚段至 157 帧（10fps 循环≈15.7s 与音频等长；画布顶裁 7px 归一角色占比至 92%——
+// 曾裁 22px 把仰头帧头顶切掉，全帧内容顶 y=9，安全边距 2px）；
+// 单文件原生播放，at:0 一帧即整场演出，逐帧时间轴交给 webp 自己走
 import nailongAnim from '../../assets/nailong/skins/default/nailong_anim.webp'
+import dagouImage from '../../assets/dagou/skins/default/dagou.webp'
+import dagouShout from '../../assets/dagou/skins/default/dagou_shout.webp'
+// 大狗叫：da+gou+da+gou+jiao×3 链式合成（大狗大狗叫叫叫），源 wav 出自 Dagou-Tap-New
+import dagouCall from '../../assets/dagou/dagou_call.mp3'
+import catImage from '../../assets/cat/skins/default/cat.webp'
+import catSleep from '../../assets/cat/skins/default/cat_sleep.webp'
+// 赛博猫叫声：onekeynya 的 nya0.mp3（裁尾静音+归一化）
+import catMeow from '../../assets/cat/cat_meow.mp3'
+import xnImage from '../../assets/xiaonailong/skins/default/xiaonailong.png'
+import xnBlink from '../../assets/xiaonailong/skins/default/xiaonailong_blink.png'
+import xnF2 from '../../assets/xiaonailong/skins/default/f2.png'
+import xnF3 from '../../assets/xiaonailong/skins/default/f3.png'
+import xnF4 from '../../assets/xiaonailong/skins/default/f4.png'
+import xnShout from '../../assets/xiaonailong/xiaonailong.mp3'
 
 // ---------------------------------------------------------------------------
 // 运行时类型（素材字段一律 dataurl；与包文件格式的差别仅在于路径已解析）
@@ -55,7 +70,7 @@ import nailongAnim from '../../assets/nailong/skins/default/nailong_anim.webp'
 /** 角色声音策略：samples=自带音频（自定义包唯一路线）；synth=内置合成音色。 */
 export type PackVoice =
   | { type: 'samples'; sounds: string[]; reply?: string }
-  | { type: 'synth'; preset: 'moo' | 'squeak' | 'whale' }
+  | { type: 'synth'; preset: 'moo' | 'squeak' | 'whale' | 'meow' }
 
 /** 角色内一个皮肤（外观变体）。 */
 export interface PackSkinDef {
@@ -71,11 +86,15 @@ export interface PackSkinDef {
     fly?: string
     flyShout?: string
     spout?: string
+    /** 专睡图（打盹换图不压扁，可选）。 */
+    sleep?: string
   }
   shoutAnim?: ShoutFrame[]
   signature?: ActionName
   shoutBubble?: string
   quips?: string[]
+  /** 默认显示高度 px（72-200；选用该皮肤时大小滑杆落到它，用户另行调整优先）。 */
+  defaultSize?: number
 }
 
 /** 角色（character）：声音 + 动作 + 事件 + 语录；皮肤是外观。 */
@@ -130,7 +149,7 @@ export const BUILTIN_PACKS: CharacterDef[] = [
     name: '奶龙',
     voice: { type: 'samples', sounds: [nailongLaugh] },
     skins: [{
-      id: 'nailong', name: '奶龙', signature: 'sway', shoutBubble: '哈~哈~',
+      id: 'nailong', name: '奶龙', signature: 'sway', shoutBubble: '哈~哈~', defaultSize: 155,
       images: { stand: nailongImage, shout: nailongShout, blink: nailongBlink },
       // 大笑演出：站捧腹抖肚 → 抱头弯腰 → 回抱肚渐弯 → 仰头 → 憋不住倒下 → 躺地蹬腿打滚
       shoutAnim: [{ src: nailongAnim, at: 0 }],
@@ -138,13 +157,13 @@ export const BUILTIN_PACKS: CharacterDef[] = [
     }],
   },
   {
-    id: 'cow',
-    name: '奶牛',
-    voice: { type: 'synth', preset: 'moo' },
+    id: 'dagou',
+    name: '大狗',
+    voice: { type: 'samples', sounds: [dagouCall] },
     skins: [{
-      id: 'cow', name: '奶牛', signature: 'roll', shoutBubble: '哞——！',
-      images: { stand: cowImage, blink: cowBlink },
-      quips: ['今天的奶产量达标了吗', '黑白配，永不过时'],
+      id: 'dagou', name: '大狗', signature: 'hops', shoutBubble: '大狗叫！',
+      images: { stand: dagouImage, shout: dagouShout },
+      quips: ['大狗大狗叫叫叫', '汪？'],
     }],
   },
   {
@@ -167,6 +186,28 @@ export const BUILTIN_PACKS: CharacterDef[] = [
       quips: ['深海里没有 deadline', '咕嘟咕嘟'],
     }],
   },
+  {
+    id: 'cat',
+    name: '赛博猫',
+    voice: { type: 'samples', sounds: [catMeow] },
+    skins: [{
+      id: 'cat', name: '赛博猫', signature: 'sway', shoutBubble: '喵——！',
+      images: { stand: catImage, sleep: catSleep },
+      quips: ['喵', '别卷了，躺会儿'],
+    }],
+  },
+  {
+    id: 'xiaonailong',
+    name: '小奶龙',
+    voice: { type: 'samples', sounds: [xnShout] },
+    skins: [{
+      id: 'xiaonailong', name: '小奶龙', signature: 'sway', shoutBubble: '我是奶龙！', defaultSize: 100,
+      images: { stand: xnImage, blink: xnBlink },
+      // 喊叫逐帧演出（原自定义验证包同款时间轴）：站 → 指 → 大笑 → 惊讶
+      shoutAnim: [{ src: xnImage, at: 0 }, { src: xnF2, at: 0.15 }, { src: xnF3, at: 0.34 }, { src: xnF4, at: 0.75 }],
+      quips: ['我是奶龙！', '嘿嘿嘿'],
+    }],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -185,12 +226,14 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     imageFly: skin.images.fly,
     imageFlyShout: skin.images.flyShout,
     imageSpout: skin.images.spout,
+    imageSleep: skin.images.sleep,
     voice: char.voice.type === 'samples' ? 'mama' : char.voice.preset,
     sounds: char.voice.type === 'samples' ? char.voice.sounds : undefined,
     replySound: char.voice.type === 'samples' ? char.voice.reply : undefined,
     signature: skin.signature ?? 'hops',
     shoutBubble: skin.shoutBubble ?? char.name,
     quips: [...char.quips ?? [], ...skin.quips ?? []],
+    defaultSize: skin.defaultSize ?? 120,
   }
 }
 
@@ -347,8 +390,8 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
     voice = { type: 'samples', sounds, ...(reply !== undefined ? { reply } : {}) }
   } else if (vraw.type === 'synth') {
     const preset = vraw.preset
-    if (preset === 'moo' || preset === 'squeak' || preset === 'whale') voice = { type: 'synth', preset }
-    else errors.push(`voice.preset: 只支持内置音色 moo/squeak/whale，收到 ${JSON.stringify(preset)}`)
+    if (preset === 'moo' || preset === 'squeak' || preset === 'whale' || preset === 'meow') voice = { type: 'synth', preset }
+    else errors.push(`voice.preset: 只支持内置音色 moo/squeak/whale/meow，收到 ${JSON.stringify(preset)}`)
   } else {
     errors.push(`voice.type: 只支持 samples / synth，收到 ${JSON.stringify(vraw.type)}`)
   }
@@ -404,7 +447,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         } else if (typeof imgRaw.stand !== 'string') {
           errors.push(`${at}.images.stand: 必填（透明底 png）`)
         }
-        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout'] as const) {
+        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout', 'sleep'] as const) {
           const d = asset(`${at}.images.${key}`, IMG_EXT)
           if (d !== undefined) images[key] = d
         }
@@ -447,6 +490,12 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
       }
       const squips = parseQuips(s.quips, `${at}.quips`, errors)
       const shoutBubble = typeof s.shoutBubble === 'string' ? s.shoutBubble : undefined
+      let defaultSize: number | undefined
+      if (s.size !== undefined) {
+        const n = typeof s.size === 'number' ? s.size : NaN
+        if (Number.isInteger(n) && n >= 72 && n <= 200) defaultSize = n
+        else errors.push(`${at}.size: 必须 72~200 的整数，收到 ${JSON.stringify(s.size)}`)
+      }
 
       if (standOk) {
         skins.push({
@@ -458,6 +507,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(signature !== undefined ? { signature } : {}),
           ...(shoutBubble !== undefined ? { shoutBubble } : {}),
           ...(squips.length > 0 ? { quips: squips } : {}),
+          ...(defaultSize !== undefined ? { defaultSize } : {}),
         })
       }
     })

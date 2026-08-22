@@ -15,8 +15,9 @@ import { mountPet, type PetHandle, type SkinDef } from './pet.js'
 import { ConfigStore } from './config.js'
 import { voiceCapable } from './voice.js'
 
-/** 模拟 agent 任务卡片：跑任务 → 忙（耗时气泡）→ 完成 → 庆祝喊妈。 */
-function mountSim(pet: PetHandle): void {
+/** 模拟 agent 任务卡片：跑任务 → 忙（耗时气泡）→ 完成 → 庆祝喊妈（全员广播）。
+ *  paused 期间（一起飞表演中）不触发——庆祝会把飞行中的桌宠拽回地面。 */
+function mountSim(getAll: () => PetHandle[], paused: () => boolean): void {
   const card = document.createElement('div')
   card.style.cssText = [
     'position:fixed', 'left:16px', 'top:16px', 'z-index:99998', 'width:240px',
@@ -40,13 +41,13 @@ function mountSim(pet: PetHandle): void {
 
   let running = false
   const run = (): void => {
-    if (running) return
+    if (running || paused()) return
     running = true
     btn.disabled = true
     btn.style.opacity = '.5'
     const dur = 4000 + Math.random() * 4000
     const t0 = Date.now()
-    pet.setBusy({ since: t0, label: '演示任务' })
+    for (const h of getAll()) h.setBusy({ since: t0, label: '演示任务' })
     st.textContent = '任务运行中…'
     const tick = (): void => {
       const p = Math.min(1, (Date.now() - t0) / dur)
@@ -55,8 +56,7 @@ function mountSim(pet: PetHandle): void {
         requestAnimationFrame(tick)
         return
       }
-      pet.setBusy(null)
-      pet.celebrate()
+      for (const h of getAll()) { h.setBusy(null); h.celebrate() }
       st.textContent = '任务完成！'
       bar.style.width = '0%'
       running = false
@@ -204,11 +204,186 @@ function mountPackImport(ctx: DemoCtx): void {
   }
 }
 
+/** 隐藏/喊回角标（👁）：demo 没有设置卡片，隐藏全部后从这恢复。 */
+function mountHideBtn(store: ConfigStore): void {
+  const btn = document.createElement('button')
+  btn.style.cssText = [
+    'position:fixed', 'right:256px', 'top:16px', 'z-index:99998',
+    'width:40px', 'height:40px', 'border-radius:10px',
+    'border:1px solid rgba(255,255,255,.12)', 'background:rgba(20,24,45,.92)',
+    'font-size:19px', 'cursor:pointer', 'backdrop-filter:blur(6px)',
+  ].join(';')
+  const sync = (): void => {
+    const on = store.getSnapshot().hidden
+    btn.textContent = on ? '🙈' : '👁'
+    btn.title = on ? '桌宠已隐藏，点我喊回来' : '隐藏全部桌宠，点我藏起'
+    btn.setAttribute('aria-label', btn.title)
+  }
+  btn.addEventListener('click', () => { store.set({ hidden: !store.getSnapshot().hidden }) })
+  sync()
+  store.subscribe(sync)
+  document.body.appendChild(btn)
+}
+
 /** demo 侧共享状态：自定义包（内存）+ 皮肤推送通道 + ConfigStore。 */
 interface DemoCtx {
   customs: CharacterDef[]
   store: ConfigStore
   pushSkins(next: SkinDef[]): void
+}
+
+import { FAMILY_LEFT, FAMILY_RIGHT, FAMILY_LAYERED_WINGS, layoutLayered, layoutUniform } from './family.js'
+
+/** 一起飞 + 全家福（右上角图标排整活按钮）。全家福宠物用 forceSkin/forceSize
+ *  展示性挂载（绕开配置、只数上限与位置记忆），再点一次收起。 */
+/** 一起飞模式共享状态（start() 创建，落地回调与 mountFun 共用）。 */
+interface FlyState {
+  on: boolean
+  flying: Set<PetHandle>
+}
+
+/** 飞行落地回调工厂：一起飞模式中，飞完这趟的桌宠落地即藏（与 flight 收尾同同步段）。 */
+const mkFlightEnd = (flyState: FlyState, byPid: Map<string, PetHandle>, pid: string) => (): void => {
+  if (!flyState.on) return
+  const h = byPid.get(pid)
+  if (h !== undefined && flyState.flying.delete(h)) h.setVisible(false)
+}
+
+function mountFun(ctx: DemoCtx, main: PetHandle, extraPets: Map<string, PetHandle>, subSkins: (fn: (s: SkinDef[]) => void) => () => void, family: PetHandle[], flyState: FlyState, byPid: Map<string, PetHandle>): void {
+  const mkBtn = (right: number, icon: string, title: string): HTMLButtonElement => {
+    const btn = document.createElement('button')
+    btn.style.cssText = [
+      `position:fixed`, `right:${right}px`, 'top:16px', 'z-index:99998',
+      'width:40px', 'height:40px', 'border-radius:10px',
+      'border:1px solid rgba(255,255,255,.12)', 'background:rgba(20,24,45,.92)',
+      'font-size:19px', 'cursor:pointer', 'backdrop-filter:blur(6px)',
+    ].join(';')
+    btn.textContent = icon
+    btn.title = title
+    btn.setAttribute('aria-label', title)
+    document.body.appendChild(btn)
+    return btn
+  }
+  let reflowTimer = 0
+  let flyTimer = 0
+  const flying = flyState.flying
+  const flyBtn = mkBtn(160, '🛫', '一起飞：彩带式持续起飞（只显示飞行中的），再点停（在飞的会落回）')
+  flyBtn.addEventListener('click', () => {
+    if (flyTimer !== 0) {
+      window.clearTimeout(flyTimer)
+      flyTimer = 0
+      flyState.on = false
+      flyBtn.style.opacity = '1'
+      // 落地的显形；在飞的保持可见、飞完这趟落回（落地回调见 flyState.on=false 不会藏它）
+      for (const h of [main, ...extraPets.values(), ...family]) {
+        if (!flying.has(h)) h.setVisible(true)
+      }
+      flying.clear()
+      return
+    }
+    flyBtn.style.opacity = '.6' // 持续起飞中
+    flyState.on = true
+    const all = (): PetHandle[] => [main, ...extraPets.values(), ...family]
+    // 站立的先藏起来：一起飞模式只显示飞行中的桌宠
+    for (const h of all()) h.setVisible(false)
+    // 落地隐藏由 pet 的 onFlightEnd 回调驱动（flight 收尾同一同步段，零闪烁）；
+    // 循环只管按随机节奏补位发射
+    const loop = (): void => {
+      const pets = all()
+      // 并发上限 ≈ 一半：全在天上必叠层，留地面梯队才有彩带感
+      const cap = Math.max(2, Math.ceil(pets.length * 0.5))
+      if (flying.size < cap) {
+        const landed = pets.filter((h) => !flying.has(h))
+        const pick = landed[Math.floor(Math.random() * landed.length)]
+        if (pick !== undefined) {
+          flying.add(pick)
+          pick.setVisible(true)
+          pick.fly()
+        }
+      }
+      flyTimer = window.setTimeout(loop, 400 + Math.random() * 500)
+    }
+    loop() // 首只立刻起，后面靠随机节奏一只只跟（别开第二条计时链——停不掉，踩过）
+  })
+  // 全家福两种排布：uniform=均匀列队（牛来 C 位、奶龙/小奶龙 ±1/±2 对称）；
+  // layered=层次合影（高个靠中后排、个矮两翼前压，24% 叠压出前后空间感）。按钮循环：均匀→层次→收起
+  const famBtn = mkBtn(208, '👪', '全家福：均匀列队 → 层次合影 → 收起（循环切换）')
+  let famMode: 'off' | 'uniform' | 'layered' = 'off'
+  let mainHomeX = -1
+  const closeFamily = (): void => {
+    window.clearTimeout(reflowTimer)
+    family.forEach((h, i) => {
+      h.destroy()
+      byPid.delete(`family-${i}`)
+      flyState.flying.delete(h) // 被销毁的不会发落地回调，手动除名防漏 cap
+    })
+    family.length = 0
+    main.setPinned(false)
+    main.setTopmost(false) // 冗余无害（可能没置过）
+    if (mainHomeX >= 0) { main.place(mainHomeX); mainHomeX = -1 } // 主宠回原位（place 对非展示挂载落盘）
+    famMode = 'off'
+    famBtn.style.opacity = '1'
+  }
+  const buildFamily = (mode: 'uniform' | 'layered'): void => {
+    const mainIsNiulai = ctx.store.getSnapshot().skin === 'niulai'
+    // layered 的数组序 = 绘制序（中心先挂，两翼后挂压上来）；uniform 按左→右
+    const order = mode === 'layered'
+      ? [...(mainIsNiulai ? [] : ['niulai']), ...FAMILY_LAYERED_WINGS]
+      : [...FAMILY_LEFT, ...(mainIsNiulai ? [] : ['niulai']), ...FAMILY_RIGHT]
+    order.forEach((sid, i) => {
+      const def = SKINS.find((v) => v.id === sid)
+      if (def === undefined) return
+      const pid = `family-${i}`
+      const h = mountPet({
+        skins: SKINS,
+        defaultSkin: 'niulai',
+        petId: pid,
+        defaultX: 30 + i * 90, // provisional，待重排
+        forceSkin: sid,
+        forceSize: def.defaultSize ?? 120,
+        subscribeSkins: subSkins,
+        onFlightEnd: mkFlightEnd(flyState, byPid, pid),
+      }, ctx.store)
+      byPid.set(pid, h)
+      h.setVisible(false) // 先隐挂载：重排落定前不露面，防列队瞬移闪烁
+      family.push(h)
+    })
+    famBtn.style.opacity = '.6' // 列队中
+    if (mainIsNiulai) {
+      mainHomeX = main.bounds().x
+      main.setPinned(true) // 主宠占 C 位才钉住；不在队列里就随它去
+    }
+    reflowTimer = window.setTimeout(() => {
+      // 成员：均匀档=左翼 5 + 牛来（主宠是牛来就直接摆进 C 位，否则用挂载的）+ 右翼 5；
+      // 层次档则主宠/挂载牛来在 members[0]（绘制序中心在前）
+      const members = mode === 'uniform'
+        ? (mainIsNiulai
+          ? [...family.slice(0, FAMILY_LEFT.length), main, ...family.slice(FAMILY_LEFT.length)]
+          : family)
+        : (mainIsNiulai ? [main, ...family] : family)
+      if (mode === 'uniform') {
+        layoutUniform(members)
+      } else {
+        layoutLayered(members)
+        members[0].setTopmost(true) // C 位牛来压过两翼（主宠或挂载的都抬）
+      }
+      for (const h of family) h.setVisible(true) // 重排落定，整队同时显形
+    }, 450)
+  }
+  famBtn.addEventListener('click', () => {
+    if (famMode === 'off') {
+      famMode = 'uniform'
+      buildFamily('uniform')
+      return
+    }
+    if (famMode === 'uniform') {
+      closeFamily()
+      famMode = 'layered'
+      buildFamily('layered')
+      return
+    }
+    closeFamily()
+  })
 }
 
 const start = (): void => {
@@ -224,39 +399,51 @@ const start = (): void => {
       for (const fn of skinListeners) fn(next)
     },
   }
+  const flyState: FlyState = { on: false, flying: new Set() }
+  const byPid = new Map<string, PetHandle>()
   const pet = mountPet({
     skins: currentSkins,
     defaultSkin: 'niulai',
     subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
+    onFlightEnd: mkFlightEnd(flyState, byPid, 'main'),
   }, store)
+  byPid.set('main', pet)
   // 额外表实例管家（同 index.ts；试玩页也开乐园模式）
   const extraPets = new Map<string, PetHandle>()
   const syncExtraPets = (): void => {
     const want = store.getSnapshot().extraPets
     want.forEach((p, idx) => {
       if (!extraPets.has(p.id)) {
-        extraPets.set(p.id, mountPet({
+        const h = mountPet({
           skins: currentSkins,
           defaultSkin: 'niulai',
           petId: p.id,
           defaultX: Math.max(0, window.innerWidth - 320 - 150 * (idx + 1)),
           subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
-        }, store))
+          onFlightEnd: mkFlightEnd(flyState, byPid, p.id),
+        }, store)
+        byPid.set(p.id, h)
+        extraPets.set(p.id, h)
       }
     })
     for (const [id, h] of extraPets) {
       if (!want.some((p) => p.id === id)) {
         h.destroy()
         extraPets.delete(id)
+        byPid.delete(id)
+        flyState.flying.delete(h) // 被销毁的不会发落地回调，手动除名
       }
     }
   }
   syncExtraPets()
   store.subscribe(syncExtraPets)
-  mountSim(pet)
+  const family: PetHandle[] = [] // 全家福阵容（mountFun 填；mountSim 广播要用）
+  mountSim(() => [pet, ...extraPets.values(), ...family], () => flyState.on)
   mountMuteBtn(pet)
   mountVoiceBtn(store)
+  mountHideBtn(store)
   mountPackImport(ctx)
+  mountFun(ctx, pet, extraPets, (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } }, family, flyState, byPid)
   // 验证钩子（playwright 冒烟用）
   ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
 }

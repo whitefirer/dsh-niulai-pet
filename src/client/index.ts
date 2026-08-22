@@ -13,6 +13,8 @@ import { defaultActionsFor } from './packs.js'
 import { ConfigStore } from './config.js'
 import { registerSettingsCard } from './card.js'
 import { VoiceDebugBus } from './voice-debug.js'
+import { HighlightBus } from './highlight.js'
+import { FAMILY_LEFT, FAMILY_RIGHT, FAMILY_LAYERED_WINGS, layoutLayered, layoutUniform } from './family.js'
 
 export { SKINS } from './skins.js'
 export type { SkinDef } from './pet.js'
@@ -125,6 +127,7 @@ export function apply(ctx: ClientCtx): void {
     const store = new ConfigStore({ skinIds: registry.getSnapshot().skinIds, defaultSkin: 'niulai' })
     registry.subscribe(() => store.updateSkinIds(registry.getSnapshot().skinIds))
     const voiceDebug = new VoiceDebugBus()
+    const highlight = new HighlightBus()
     const mkAssets = (petId?: string, defaultX?: number): Parameters<typeof mountPet>[0] => ({
       skins: registry.getSnapshot().skins,
       defaultSkin: 'niulai',
@@ -132,8 +135,70 @@ export function apply(ctx: ClientCtx): void {
       ...(defaultX !== undefined ? { defaultX } : {}),
       subscribeSkins: (fn) => registry.subscribe(() => fn(registry.getSnapshot().skins)),
       defaultActions: (gid) => defaultActionsFor(registry.getSnapshot().characters, gid),
+      highlight,
+      // 全家福菜单项只给主宠（闭包延迟引用，点击时管理器已就位）
+      ...(petId === undefined ? { onFamilyToggle: () => { toggleFamily() } } : {}),
     })
     const pet = mountPet(mkAssets(), store, voiceDebug)
+    // 全家福（主宠菜单「👪 全家福」）：均匀列队 → 层次合影 → 收起循环。
+    // 主宠摆进 C 位、期间钉住不游走、置顶不被叠压；收起时回原位——全程可恢复。
+    let famMode: 'off' | 'uniform' | 'layered' = 'off'
+    const familyPets: PetHandle[] = []
+    let familyTimer = 0
+    let mainHomeX = -1
+    const closeFamily = (): void => {
+      window.clearTimeout(familyTimer)
+      for (const h of familyPets) h.destroy()
+      familyPets.length = 0
+      pet.setPinned(false)
+      pet.setTopmost(false) // 冗余无害（可能没置过）
+      if (mainHomeX >= 0) { pet.place(mainHomeX); mainHomeX = -1 } // place 对主宠落盘，原位恢复
+      famMode = 'off'
+    }
+    const openFamily = (mode: 'uniform' | 'layered'): void => {
+      const mainIsNiulai = store.getSnapshot().skin === 'niulai'
+      // layered 的数组序 = 绘制序（中心先挂，两翼后挂压上来）；uniform 按左→右
+      const order = mode === 'layered'
+        ? [...(mainIsNiulai ? [] : ['niulai']), ...FAMILY_LAYERED_WINGS]
+        : [...FAMILY_LEFT, ...(mainIsNiulai ? [] : ['niulai']), ...FAMILY_RIGHT]
+      order.forEach((sid, i) => {
+        const def = registry.getSnapshot().skins.find((v) => v.id === sid)
+        if (def === undefined) return
+        const h = mountPet({
+          ...mkAssets(`family-${i}`),
+          forceSkin: sid,
+          forceSize: def.defaultSize ?? 120,
+          defaultX: 30 + i * 90, // provisional，待重排
+        }, store, voiceDebug)
+        h.setVisible(false) // 先隐挂载：重排落定前不露面，防列队瞬移闪烁
+        familyPets.push(h)
+      })
+      if (mainIsNiulai) {
+        mainHomeX = pet.bounds().x
+        pet.setPinned(true) // 主宠占 C 位才钉住；不在队列里就随它去
+      }
+      familyTimer = window.setTimeout(() => {
+        // 成员：均匀档=左翼 5 + 牛来（主宠是牛来就直接摆进 C 位，否则用挂载的）+ 右翼 5；
+        // 层次档则主宠/挂载牛来在 members[0]（绘制序中心在前）
+        const members = mode === 'uniform'
+          ? (mainIsNiulai
+            ? [...familyPets.slice(0, FAMILY_LEFT.length), pet, ...familyPets.slice(FAMILY_LEFT.length)]
+            : familyPets)
+          : (mainIsNiulai ? [pet, ...familyPets] : familyPets)
+        if (mode === 'uniform') {
+          layoutUniform(members)
+        } else {
+          layoutLayered(members)
+          members[0].setTopmost(true) // C 位牛来压过两翼（主宠或挂载的都抬）
+        }
+        for (const h of familyPets) h.setVisible(true) // 重排落定，整队同时显形
+      }, 450)
+    }
+    const toggleFamily = (): void => {
+      if (famMode === 'off') { famMode = 'uniform'; openFamily('uniform'); return }
+      if (famMode === 'uniform') { closeFamily(); famMode = 'layered'; openFamily('layered'); return }
+      closeFamily()
+    }
     // 额外表实例管家：盯配置里的 extraPets 增删实例（数据按只分存见 pet.ts petId）
     const extraPets = new Map<string, PetHandle>()
     const syncExtraPets = (): void => {
@@ -153,22 +218,22 @@ export function apply(ctx: ClientCtx): void {
     syncExtraPets()
     store.subscribe(syncExtraPets)
     void registry.init()
-    // 庆祝/忙闲广播到每一只（任务完成全园同庆；循环喊/语音停喊仍是各只自己的状态）
+    // 庆祝/忙闲广播到每一只（任务完成全园同庆——含列队中的全家福成员；循环喊/语音停喊仍是各只自己的状态）
     watchSessions(ctx, {
-      onDone: () => { pet.celebrate(); for (const h of extraPets.values()) h.celebrate() },
-      onBusy: (b) => { pet.setBusy(b); for (const h of extraPets.values()) h.setBusy(b) },
+      onDone: () => { pet.celebrate(); for (const h of extraPets.values()) h.celebrate(); for (const h of familyPets) h.celebrate() },
+      onBusy: (b) => { pet.setBusy(b); for (const h of extraPets.values()) h.setBusy(b); for (const h of familyPets) h.setBusy(b) },
     })
     // 设置卡片（dsh rc.7+）：可选注入——settingsScope/slots/locale 任一缺席
     // （rc.6 及更早）子 fiber 就永远等不到服务，静默没有卡片；桌宠与菜单
     // 不受影响，配置继续走 localStorage 后端。
     ctx.inject(['slots', 'locale', 'settingsScope', 'connection', 'remote'], (cardCtx: unknown) => {
-      registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store, voiceDebug, registry)
+      registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store, voiceDebug, registry, highlight)
     })
     // 验证钩子：?petdebug=1 时暴露句柄（playwright 触发 celebrate/fly 等）
     if (new URLSearchParams(location.search).has('petdebug')) {
       ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
     }
-    ctx.effect(() => () => { pet.destroy(); for (const h of extraPets.values()) h.destroy() }, 'niulai-pet pet')
+    ctx.effect(() => () => { pet.destroy(); for (const h of extraPets.values()) h.destroy(); for (const h of familyPets) h.destroy() }, 'niulai-pet pet')
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true })
