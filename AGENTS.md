@@ -5,7 +5,8 @@
 
 ## 是什么
 
-dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，6 个皮肤，
+dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，5 个内置角色 7 个皮肤
+（牛来/原皮/小黄/奶牛/熊猫/鲸鱼/奶龙）+ 用户自定义角色包（zip 导入），
 订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。
 - **client 半**（`lib/client.js`）：桌宠本体 + 设置卡片（dsh rc.7+ 设置页
   「插件配置」区，React 组件，react 由宿主模块表提供、构建时 external）。
@@ -55,11 +56,14 @@ workflow 会校验 tag 与版本号一致，不符直接失败。手动兜底：
 ## 架构
 
 ```
-src/client/index.ts   入口：ConfigStore 创建、sessions 订阅（含忙闲沿）、卡片子 fiber
-src/client/skins.ts   SKINS 皮肤注册表（导出）+ 素材 import；独立成模块让 demo 不带 react
-src/client/pet.ts     桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声
-src/client/config.ts  ConfigStore：localStorage / settings scope 双后端 + 旧版迁移
-src/client/card.tsx   设置卡片：React 组件 + CardController + registerSettingsCard
+src/client/index.ts   入口：PackRegistry/ConfigStore 创建、sessions 订阅（含忙闲沿）、卡片子 fiber
+src/client/packs.ts   角色包核心：两级模型（角色=声音/动作/事件/语录，皮肤=外观）、内置包定义、
+                      zip 解析校验（PackParseError 逐条字段级错误）、派生合并（variant）、
+                      IndexedDB 存取、PackRegistry 可观察门面
+src/client/skins.ts   兼容层：SKINS=内置包展开 + 语音模板（assets/voice/）导出，消费面不变
+src/client/pet.ts     桌宠本体：DOM + 状态机 + 动画 + 菜单 + 叫声（皮肤列表经 subscribeSkins 热更新）
+src/client/config.ts  ConfigStore：localStorage / settings scope 双后端 + 旧版迁移（updateSkinIds 动态白名单）
+src/client/card.tsx   设置卡片：React 组件 + CardController + 自定义角色管理（PackManager）
 src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝
 ```
 
@@ -73,8 +77,15 @@ imageFlyShout?, imageSpout?, voice, sounds?, signature, shoutBubble, quips? }`�
 抢图，打断路径由 stopShoutLoop/cutPlayingShout 归位）；演出期间移动类动作让位
 （animTakesOver，静音兜底才跑 done/poke 绑定动作）。注意 `img.style.height` 只能设具体 px，置 `''` 会清掉内联高度让图按
 自然尺寸炸开（踩过）；拖拽拎起只在飞行中才换站立图，无差别换图会把演出画面掐了
-笑声还在放（踩过）。加新皮肤 = 加素材 + skins.ts
-注册一条 + host 半 index.js 的 SKIN_IDS 同步加 id，零改 pet.ts。
+笑声还在放（踩过）。
+
+**角色包（packs.ts）**：两级模型——角色（声音/动作/事件/语录）+ 皮肤（外观），
+格式规范与导入校验规则见 `docs/skin-pack-schema.md`。要点：内置皮肤全局 id 沿用
+历史值（niulai/orig/young/cow/panda/whale/nailong，存量配置零迁移），自定义包皮肤
+id = `角色id/皮肤id`；多皮肤角色的显示名组合为 `角色名·皮肤名`。加内置角色 =
+assets/<角色>/ 放素材 + BUILTIN_PACKS 注册一条；用户角色走 zip 导入（fflate 解、
+逐字段校验、素材转 dataurl 进 IndexedDB），host 半 skin 字段已是自由字符串
+（合法性由 client 白名单围栏）。
 
 **语音停喊双引擎**（voice.ts + kws.ts）：`voiceEngine` 配置二选一。
 （演进/数据/复跑脚本单一来源 = `docs/voice-stop-engine.md`，改动同步它。）

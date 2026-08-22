@@ -74,10 +74,11 @@ export const NIULAI_PET_NS = settingsNamespace('niulai-pet')
 const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'random']
 
 /**
- * 皮肤 id 集合（抄自 client 半 src/client/skins.ts 的 SKINS 注册表——host 半
- * 不能 import 它（会拖进素材 dataurl），加皮肤时两边同步。
+ * 皮肤 id：字符串自由形——自定义角色包的皮肤 id 是 `角色id/皮肤id` 组合，
+ * host 无法预知全量集合，合法性由 client 半白名单（PackRegistry skinIds）围栏；
+ * 失效 id（包被删）在 client 解析时回落默认皮肤。
  */
-const SKIN_IDS = ['niulai', 'orig', 'young', 'cow', 'panda', 'whale', 'nailong']
+const SKIN_IDS = ['niulai', 'orig', 'young', 'cow', 'panda', 'whale', 'nailong'] // 内置皮肤，仅注释备查
 
 const Action = z.union(ACTION_IDS)
 
@@ -95,8 +96,8 @@ export const Config = z.object({
   shoutCount: z.number().step(1).min(1).max(99).default(1),
   /** 气泡唠叨（默认开）。 */
   talkative: z.boolean().default(true),
-  /** 当前皮肤。 */
-  skin: z.union(SKIN_IDS).default('niulai'),
+  /** 当前皮肤（自定义角色包皮肤为 `角色id/皮肤id`，见 SKIN_IDS 注释）。 */
+  skin: z.string().default('niulai'),
   /** 按皮肤的动作绑定：{ [skinId]: { done, poke } }。 */
   actions: z.dict(z.object({ done: Action.default('signature'), poke: Action.default('hops') })).default({}),
   /** 音量 0-100（默认 100；静音开关之外的细粒度）。 */

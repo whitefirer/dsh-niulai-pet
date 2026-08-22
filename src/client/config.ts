@@ -182,13 +182,19 @@ export class ConfigStore {
   private readonly pending = new Map<string, unknown>()
   private snapshot: PetConfig
   private readonly listeners = new Set<() => void>()
-  private readonly skinIds: readonly string[]
+  private skinIds: readonly string[]
   private readonly defaultSkin: string
 
   constructor(opts: { skinIds: readonly string[]; defaultSkin: string }) {
     this.skinIds = opts.skinIds
     this.defaultSkin = opts.defaultSkin
     this.snapshot = this.resolve()
+  }
+
+  /** 自定义角色包装载/增删后更新皮肤白名单；当前皮肤失效时快照解析自动回落默认。 */
+  updateSkinIds(ids: readonly string[]): void {
+    this.skinIds = ids
+    this.republish()
   }
 
   /** 当前生效配置（稳定引用：无变更时返回同一对象，可直供 uSES）。 */

@@ -70,6 +70,10 @@ export interface SkinDef {
 export interface PetAssets {
   skins: SkinDef[]
   defaultSkin: string
+  /** 皮肤列表热更新通道（自定义角色包装载/增删时推送新列表；不订阅则静态）。 */
+  subscribeSkins?: (fn: (skins: SkinDef[]) => void) => () => void
+  /** 皮肤的事件默认绑定（角色包 events 声明；缺省 done=signature / poke=hops）。 */
+  defaultActions?: (skinGid: string) => { done: ActionName; poke: ActionName }
 }
 
 export interface PetHandle {
@@ -220,15 +224,15 @@ function synthSqueak(ctx: AudioContext): void {
 }
 
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
-  const skins = assets.skins.length > 0
+  let skins = assets.skins.length > 0
     ? assets.skins
     : [{ id: 'fallback', name: '桌宠', image: '', voice: null, signature: 'hops' as ActionName, shoutBubble: '' }]
-  const skinIds = skins.map((s) => s.id)
+  const skinIds = (): string[] => skins.map((s) => s.id)
   // 行为配置统一走 ConfigStore（localStorage / dsh settings scope 双后端）；
   // 下方局部变量只是它的快照镜像，写一律经 config.set / config.setSkinAction
-  const config = store ?? new ConfigStore({ skinIds, defaultSkin: assets.defaultSkin })
+  const config = store ?? new ConfigStore({ skinIds: skinIds(), defaultSkin: assets.defaultSkin })
   /** 位置 x 的文档读写（按设备，永远 localStorage；行为键不归这里管）。 */
-  const loadDoc = (): Persisted => loadPersisted(skinIds, assets.defaultSkin)
+  const loadDoc = (): Persisted => loadPersisted(skinIds(), assets.defaultSkin)
   const findSkin = (id: string | undefined): SkinDef =>
     skins.find((s) => s.id === id) ?? skins[0]
   const initCfg = config.getSnapshot()
@@ -340,15 +344,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // ---- 叫声 ----
   // 预读 mp3 元数据拿真实时长：嘴部张合/气泡要撑满「妈~~~~」的长尾音
   const soundDur = new Map<string, number>()
-  for (const s of assets.skins) {
-    for (const src of [...(s.sounds ?? []), ...(s.replySound !== undefined ? [s.replySound] : [])]) {
-      const probe = new Audio()
-      probe.preload = 'metadata'
-      probe.addEventListener('loadedmetadata', () => { soundDur.set(src, probe.duration) })
-      probe.src = src
-    }
-  }
-
   // 预读各帧尺寸（w=站立高度 PET_H 下渲染宽，h=自然高）：shoutAnim 逐帧动画按
   // 「统一物理缩放」换算显示尺寸（帧高/参考高 × PET_H），倒地宽帧还要锚定视觉中心
   const frameW = new Map<string, { w: number; h: number }>()
@@ -358,10 +353,21 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     im.onload = () => frameW.set(src, { w: (im.naturalWidth / im.naturalHeight) * PET_H, h: im.naturalHeight })
     im.src = src
   }
-  for (const s of assets.skins) {
-    preloadW(s.image)
-    for (const f of s.shoutAnim ?? []) preloadW(f.src)
+  /** 声音元数据 + 帧尺寸预读（热更新新皮肤的素材也走这里补读）。 */
+  const preloadAssets = (list: SkinDef[]): void => {
+    for (const s of list) {
+      for (const src of [...(s.sounds ?? []), ...(s.replySound !== undefined ? [s.replySound] : [])]) {
+        if (soundDur.has(src)) continue
+        const probe = new Audio()
+        probe.preload = 'metadata'
+        probe.addEventListener('loadedmetadata', () => { soundDur.set(src, probe.duration) })
+        probe.src = src
+      }
+      preloadW(s.image)
+      for (const f of s.shoutAnim ?? []) preloadW(f.src)
+    }
   }
+  preloadAssets(skins)
 
   /** 在播的喊声（语音/互动打断时当场掐断用）。 */
   let playingAudio: HTMLAudioElement | null = null
@@ -794,10 +800,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   const flyAcross = (): Promise<void> => flight('dive')
 
-  /** 当前皮肤的完成绑定（按皮肤记，缺配回落签名动作）。 */
-  const doneAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.done, 'signature')
-  /** 当前皮肤的戳一下绑定（按皮肤记，缺配回落连跳）。 */
-  const pokeAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.poke, 'hops')
+  /** 皮肤的事件默认绑定（角色包 events 声明；无声明回落 signature/hops）。 */
+  const defaultsOf = (gid: string): { done: ActionName; poke: ActionName } =>
+    assets.defaultActions?.(gid) ?? { done: 'signature', poke: 'hops' }
+  /** 当前皮肤的完成绑定（按皮肤记，缺配回落角色包声明的默认）。 */
+  const doneAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.done, defaultsOf(skin.id).done)
+  /** 当前皮肤的戳一下绑定（按皮肤记，缺配回落角色包声明的默认）。 */
+  const pokeAction = (): ActionName => asAction(config.getSnapshot().actions[skin.id]?.poke, defaultsOf(skin.id).poke)
 
   /** 事件动作派发：signature 解析为当前皮肤签名；random 现场抽。 */
   const runAction = (name: ActionName): void => {
@@ -1259,6 +1268,20 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (menu.style.display === 'block') rebuildMenu()
   })
 
+  // 皮肤列表热更新：自定义角色包装载/增删后注册表推新列表；当前皮肤被删时
+  // findSkin 自动回落列表首（ConfigStore 白名单同步收窄，失效 skin 解析回默认）
+  const unsubSkins = assets.subscribeSkins?.((next) => {
+    if (destroyed || next.length === 0) return
+    skins = next
+    preloadAssets(skins)
+    const re = findSkin(skin.id)
+    if (re !== skin) {
+      skin = re
+      if (mood !== 'fly') img.src = skinIdle()
+    }
+    if (menu.style.display === 'block') rebuildMenu()
+  })
+
   return {
     celebrate,
     poke,
@@ -1278,6 +1301,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     destroy() {
       destroyed = true
       unsubConfig()
+      unsubSkins?.()
       keeper.disconnect()
       if (voice !== null) { voice.stop(); voice = null }
       window.clearTimeout(behaveTimer)

@@ -4,13 +4,18 @@
 
 ## 一、自定义皮肤（用户素材包）
 
-现状：SkinDef 已是注册表结构（加皮肤 = 加素材 + 注册一条，零改 pet.ts），
-事件绑定（完成/戳一下 → 动作）已有菜单 UI。要做的是把这套能力开放给用户：
-
-- 用户素材包：图片（常态/眨眼/喊/飞/喷水等帧）+ 音频 + 元数据 JSON，
-  本地导入（File System Access API 或文件上传），校验尺寸格式后注册进 SKINS
-- 自定义事件映射：事件 ×（动作 / 声音 / 气泡文案 / 颜色）用户可配
-- 素材包导出分享（单个 JSON + base64 或 zip）
+> 2026-08-22 更新：**核心链路已落地**——两级模型（角色=声音/动作/事件/语录，
+> 皮肤=外观变体），格式规范 `docs/skin-pack-schema.md`（送审稿已定），
+> zip 本地导入（fflate 解 + 逐字段校验 + 警告确认）、IndexedDB 持久化、
+> 派生覆盖包（variant/extends，内置本体只读）、设置卡片管理区（PackManager）、
+> 皮肤列表热更新（pet subscribeSkins / card useSyncExternalStore /
+> ConfigStore.updateSkinIds 三路）。assets/ 已按角色分目录，内置角色与包同构。
+>
+> 剩余：
+> - 「让 dsh 帮我做皮肤」按钮（预填 prompt 进 dsh 聊天框，零 API 依赖）
+> - `SKIN_AUTHORING.md` 制作指南（schema + 素材规格 + AI 生成提示词附录）
+> - 小奶龙包实做验证全流程；大狗包验证 AI 素材生成链路
+> - 远程 URL 导入 / 插件市场对接（后排）
 
 关联讨论：自定义颜色（纯色/渐变剪影皮肤，无需素材即可个性化）。
 

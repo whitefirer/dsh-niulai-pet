@@ -8,7 +8,8 @@
  */
 
 import { mountPet, type PetHandle } from './pet.js'
-import { SKINS } from './skins.js'
+import { SKINS, PackRegistry } from './skins.js'
+import { defaultActionsFor } from './packs.js'
 import { ConfigStore } from './config.js'
 import { registerSettingsCard } from './card.js'
 import { VoiceDebugBus } from './voice-debug.js'
@@ -118,15 +119,25 @@ function watchSessions(ctx: ClientCtx, cb: WatchCallbacks): void {
 
 export function apply(ctx: ClientCtx): void {
   const start = (): void => {
-    const store = new ConfigStore({ skinIds: SKINS.map((s) => s.id), defaultSkin: 'niulai' })
+    // 角色包注册表：内置先行，IndexedDB 自定义包异步装载后推送热更新
+    // （桌宠换装、选择器扩项、ConfigStore 白名单放宽三路各自订阅）
+    const registry = new PackRegistry()
+    const store = new ConfigStore({ skinIds: registry.getSnapshot().skinIds, defaultSkin: 'niulai' })
+    registry.subscribe(() => store.updateSkinIds(registry.getSnapshot().skinIds))
     const voiceDebug = new VoiceDebugBus()
-    const pet = mountPet({ skins: SKINS, defaultSkin: 'niulai' }, store, voiceDebug)
+    const pet = mountPet({
+      skins: registry.getSnapshot().skins,
+      defaultSkin: 'niulai',
+      subscribeSkins: (fn) => registry.subscribe(() => fn(registry.getSnapshot().skins)),
+      defaultActions: (gid) => defaultActionsFor(registry.getSnapshot().characters, gid),
+    }, store, voiceDebug)
+    void registry.init()
     watchSessions(ctx, { onDone: pet.celebrate, onBusy: pet.setBusy })
     // 设置卡片（dsh rc.7+）：可选注入——settingsScope/slots/locale 任一缺席
     // （rc.6 及更早）子 fiber 就永远等不到服务，静默没有卡片；桌宠与菜单
     // 不受影响，配置继续走 localStorage 后端。
     ctx.inject(['slots', 'locale', 'settingsScope', 'connection', 'remote'], (cardCtx: unknown) => {
-      registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store, voiceDebug)
+      registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store, voiceDebug, registry)
     })
     // 验证钩子：?petdebug=1 时暴露句柄（playwright 触发 celebrate/fly 等）
     if (new URLSearchParams(location.search).has('petdebug')) {

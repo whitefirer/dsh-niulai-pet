@@ -11,10 +11,12 @@
  * @module dsh-niulai-pet/card
  */
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
-import { REPLY_MATCH, REPLY_REF, SKINS } from './skins.js'
+import { REPLY_MATCH, REPLY_REF } from './skins.js'
+import { defaultActionsFor, PackParseError } from './packs.js'
+import type { CharacterDef, RegistrySnapshot } from './packs.js'
 import { decodeToPcm16k, encodeWav16kDataUrl, applySoftGain, FRAME_LEN, frameRmsSeries, FRAME_STEP, LiveMatcher, mfccFrames, resampleTo16k, trimByEnergy } from './voice.js'
 import { createKwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey } from './kws.js'
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
@@ -75,6 +77,18 @@ const zh = {
   skin: '皮肤',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
+  packs: '自定义角色',
+  packsHint: '导入 .nlpack.zip 角色包（制作指南见插件仓库 docs/skin-pack-schema.md）',
+  packImport: '导入角色包',
+  packImporting: '解析中…',
+  packDelete: '删除',
+  packWarningsTitle: '可以导入，但有以下提醒：',
+  packConfirm: '仍然导入',
+  packCancel: '取消',
+  packErrorsTitle: '导入失败，请修正以下问题：',
+  packEmpty: '还没有自定义角色',
+  packSkinCount: '{n} 个皮肤',
+  packVariantOf: '派生自 {base}',
   readOnly: '当前 dsh 以只读模式运行，配置不可修改。',
   expand: '展开',
   collapse: '收起',
@@ -140,6 +154,18 @@ const en: Record<keyof typeof zh, string> = {
   skin: 'Skin',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
+  packs: 'Custom characters',
+  packsHint: 'Import .nlpack.zip character packs (authoring guide: docs/skin-pack-schema.md in the plugin repo)',
+  packImport: 'Import pack',
+  packImporting: 'Parsing…',
+  packDelete: 'Delete',
+  packWarningsTitle: 'Importable, with notices:',
+  packConfirm: 'Import anyway',
+  packCancel: 'Cancel',
+  packErrorsTitle: 'Import failed — fix these issues:',
+  packEmpty: 'No custom characters yet',
+  packSkinCount: '{n} skins',
+  packVariantOf: 'Derived from {base}',
   readOnly: 'This dsh instance runs read-only; configuration cannot be changed.',
   expand: 'Expand',
   collapse: 'Collapse',
@@ -162,6 +188,15 @@ export interface NiulaiCardState {
   cfg: PetConfig
 }
 
+/** 角色包注册表面（自定义角色管理 + 皮肤选择器数据源）。 */
+export interface PacksFace {
+  getSnapshot(): RegistrySnapshot
+  subscribe(fn: () => void): () => void
+  preview(file: File): Promise<{ def: CharacterDef; warnings: string[] }>
+  install(def: CharacterDef): Promise<void>
+  remove(charId: string): Promise<void>
+}
+
 /** slot 注入面（hooks 由渲染器绑定成 useNiulaiPet 选择器 hook，其余透传）。 */
 export interface NiulaiCardFace {
   hooks: { niulaiPet: { getSnapshot(): NiulaiCardState; subscribe(fn: () => void): () => void } }
@@ -169,6 +204,7 @@ export interface NiulaiCardFace {
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
   /** 语音停喊调试状态（识别分/是否在听/命中时刻），pet 侧 publish。 */
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
+  packs?: PacksFace
 }
 
 /** 组件 props（框架 t 座 + 注入面绑定后的形态，结构化自描）。 */
@@ -178,6 +214,7 @@ export interface NiulaiCardProps {
   set(patch: PetConfigPatch): void
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
+  packs?: PacksFace
 }
 
 /** 卡片状态源：合并 ConfigStore（生效配置）与 scope（ready/writable）为一个 observable。 */
@@ -190,6 +227,7 @@ class CardController {
     private readonly store: ConfigStore,
     scope: SettingsScopeLike,
     private readonly voiceDebug?: VoiceDebugBus,
+    private readonly packs?: PacksFace,
   ) {
     this.state = this.project(scope)
     const rebuild = (): void => {
@@ -217,6 +255,7 @@ class CardController {
       hooks: { niulaiPet: this.observable },
       set: (patch) => { this.store.set(patch) },
       voiceDebug: this.voiceDebug,
+      packs: this.packs,
       setSkinAction: (skin, event, action) => { this.store.setSkinAction(skin, event, action) },
     }
   }
@@ -421,6 +460,9 @@ function QuipsField(props: { value: string[]; disabled: boolean; placeholder: st
 
 const noopSubscribe = (): (() => void) => () => {}
 const nullSnapshot = (): null => null
+/** packs 缺位时的稳定空快照（useSyncExternalStore 要求 getSnapshot 引用稳定）。 */
+const EMPTY_PACKS_SNAPSHOT: RegistrySnapshot = { characters: [], skins: [], skinIds: [] }
+const EMPTY_PACKS = (): RegistrySnapshot => EMPTY_PACKS_SNAPSHOT
 
 /** 麦克风可用性：非安全上下文（局域网 http）下 getUserMedia 直接不存在，只能禁用说明。 */
 function micSupported(): boolean {
@@ -692,6 +734,101 @@ function MicTest(props: {
   )
 }
 
+/** 自定义角色管理：导入（预览→警告确认→落库）、列表、删除。 */
+function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCardProps['t'] }) {
+  const { packs, t } = props
+  const snap = useSyncExternalStore(packs.subscribe, packs.getSnapshot)
+  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<string[] | null>(null)
+  const [pending, setPending] = useState<{ def: CharacterDef; warnings: string[] } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const customs = snap.characters.filter((c) => c.custom === true)
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const f = e.target.files?.[0]
+    e.target.value = '' // 同名文件再选也要触发 change
+    if (f === undefined) return
+    setBusy(true)
+    setErrors(null)
+    setPending(null)
+    void packs.preview(f).then(async (r) => {
+      if (r.warnings.length > 0) setPending(r) // 有提醒先让用户过目
+      else await packs.install(r.def)
+    }).catch((err: unknown) => {
+      setErrors(err instanceof PackParseError ? err.issues : [String(err)])
+    }).finally(() => { setBusy(false) })
+  }
+  const confirmInstall = (): void => {
+    if (pending === null) return
+    setBusy(true)
+    void packs.install(pending.def).then(() => { setPending(null) }).finally(() => { setBusy(false) })
+  }
+  const remove = (c: CharacterDef): void => {
+    if (!window.confirm(`${t('packDelete')}「${c.name}」?`)) return
+    void packs.remove(c.id)
+  }
+
+  const smallBtn: React.CSSProperties = {
+    font: 'inherit', fontSize: 12, padding: '3px 12px', borderRadius: 7,
+    border: `1px solid ${colors.border}`, background: 'none', color: colors.labelPrimary,
+    cursor: props.disabled ? 'default' : 'pointer', opacity: props.disabled ? 0.4 : 1,
+  }
+  return (
+    <div style={{ padding: '9px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <span style={{ fontSize: 13, color: colors.labelPrimary }}>{t('packs')}</span>
+        <span style={{ display: 'inline-flex', gap: 8 }}>
+          <input ref={fileRef} type="file" accept=".zip,.nlpack.zip" style={{ display: 'none' }} onChange={onFile} />
+          <button type="button" style={smallBtn} disabled={props.disabled || busy} onClick={() => { fileRef.current?.click() }}>
+            {busy ? t('packImporting') : t('packImport')}
+          </button>
+        </span>
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('packsHint')}</div>
+      {errors !== null
+        ? (
+          <div role="alert" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-state-error-primary, #ef4444)' }}>
+            {t('packErrorsTitle')}
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {errors.map((e) => <li key={e}>{e}</li>)}
+            </ul>
+          </div>
+        )
+        : null}
+      {pending !== null
+        ? (
+          <div role="status" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-state-warning-primary, #eab308)' }}>
+            {t('packWarningsTitle')}
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {pending.warnings.map((w) => <li key={w}>{w}</li>)}
+            </ul>
+            <span style={{ display: 'inline-flex', gap: 8, marginTop: 6 }}>
+              <button type="button" style={smallBtn} disabled={busy} onClick={confirmInstall}>{t('packConfirm')}</button>
+              <button type="button" style={smallBtn} disabled={busy} onClick={() => { setPending(null) }}>{t('packCancel')}</button>
+            </span>
+          </div>
+        )
+        : null}
+      {customs.length === 0 && errors === null
+        ? <div style={{ marginTop: 8, fontSize: 12, color: colors.labelTertiary }}>{t('packEmpty')}</div>
+        : null}
+      {customs.map((c) => (
+        <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8, fontSize: 12 }}>
+          <span style={{ color: colors.labelPrimary, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {c.name}
+            <span style={{ color: colors.labelTertiary }}>
+              {' '}v{c.version ?? '?'} · {t('packSkinCount', { n: c.skins.length })}
+              {c.author !== undefined ? ` · ${c.author}` : ''}
+              {c.extendedFrom !== undefined ? ` · ${t('packVariantOf', { base: c.extendedFrom })}` : ''}
+            </span>
+          </span>
+          <button type="button" style={smallBtn} disabled={props.disabled} onClick={() => { remove(c) }}>{t('packDelete')}</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
@@ -742,9 +879,16 @@ export function NiulaiCard(props: NiulaiCardProps) {
     : vdbgState?.listening === true
       ? t('voiceDbgOn', { score: vdbgState.lastScore?.toFixed(2) ?? '—' })
       : t('voiceDbgOff')
-  const skinName = SKINS.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
-  const doneAction = cfg.actions[cfg.skin]?.done ?? 'signature'
-  const pokeAction = cfg.actions[cfg.skin]?.poke ?? 'hops'
+  // 角色包注册表（内置+自定义）；卡片总是由入口传入，空快照只是类型兜底
+  const packs = props.packs
+  const packSnap = useSyncExternalStore(
+    packs !== undefined ? packs.subscribe : noopSubscribe,
+    packs !== undefined ? packs.getSnapshot : EMPTY_PACKS,
+  )
+  const skinName = packSnap.skins.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
+  const skinDefaults = defaultActionsFor(packSnap.characters, cfg.skin)
+  const doneAction = cfg.actions[cfg.skin]?.done ?? skinDefaults.done
+  const pokeAction = cfg.actions[cfg.skin]?.poke ?? skinDefaults.poke
   return (
     <li style={{
       listStyle: 'none', border: `1px solid ${colors.border}`, borderRadius: 12,
@@ -894,7 +1038,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 disabled={disabled}
                 onChange={(e) => { props.set({ skin: e.target.value }) }}
               >
-                {SKINS.map((s) => <option key={s.id} value={s.id} style={optionStyle}>{s.name}</option>)}
+                {packSnap.skins.map((s) => <option key={s.id} value={s.id} style={optionStyle}>{s.name}</option>)}
               </select>
             </Row>
             <Row label={`${t('doneAction')} · ${skinName}`}>
@@ -917,6 +1061,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
+            {packs !== undefined ? <PackManager packs={packs} disabled={disabled} t={t} /> : null}
           </div>
         )
         : null}
@@ -940,11 +1085,11 @@ interface CardCtx {
  * 注册双语字典、按 slot 声明生命周期注册卡片。rc.6 无这些服务时
  * 本函数所在的 ctx.inject 子 fiber 永不激活，什么都不会发生。
  */
-export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus): void {
+export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus, packs?: PacksFace): void {
   const scope = ctx.settingsScope.bind({ namespace: CARD_NS })
   ctx.effect(() => store.attachScope(scope), 'niulai-pet settings scope')
   ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), 'niulai-pet card locales')
-  const controller = new CardController(store, scope, voiceDebug)
+  const controller = new CardController(store, scope, voiceDebug, packs)
   ctx.effect(() => () => { controller.dispose() }, 'niulai-pet card controller')
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
