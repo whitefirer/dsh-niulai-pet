@@ -53,8 +53,10 @@ export interface PetConfig {
   replyNiulai: boolean
   /** 闲置打盹（压扁变暗）开关；关掉永不进入。 */
   sleepEnabled: boolean
-  /** 主宠之外的额外桌宠（每只 id 唯一；皮肤按只存，行为配置全局共享）。上限 = maxPets-1。 */
-  extraPets: Array<{ id: string; skin: string }>
+  /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小按只存，行为配置全局共享）。上限 = maxPets-1。 */
+  extraPets: Array<{ id: string; skin: string; size?: number }>
+  /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
+  petSize: number
   /** 物理碰撞开关（多只时互相挤/弹飞）。 */
   physics: boolean
   /** 桌宠数量上限（连主宠，1-9，默认 3）。 */
@@ -93,7 +95,8 @@ export interface Persisted {
   shoutLoop?: boolean
   replyNiulai?: boolean
   sleepEnabled?: boolean
-  extraPets?: Array<{ id: string; skin: string }>
+  extraPets?: Array<{ id: string; skin: string; size?: number }>
+  petSize?: number
   physics?: boolean
   maxPets?: number
   /** 额外表的位置 x（按设备，petId → x）。主宠仍用 x 键。 */
@@ -292,7 +295,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'extraPets', 'physics', 'maxPets', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'extraPets', 'physics', 'maxPets', 'petSize', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -358,6 +361,8 @@ export class ConfigStore {
       physics: p.physics === true,
       maxPets: typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
         ? Math.min(9, Math.max(1, p.maxPets)) : 3,
+      petSize: typeof p.petSize === 'number' && Number.isInteger(p.petSize)
+        ? Math.min(200, Math.max(72, p.petSize)) : 120,
       extraPets: this.sanitizeExtraPets(p.extraPets, (typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
         ? Math.min(9, Math.max(1, p.maxPets)) : 3) - 1),
       voiceControl: p.voiceControl === true,
@@ -390,6 +395,7 @@ export class ConfigStore {
       sleepEnabled: r.sleepEnabled !== false,
       physics: r.physics === true,
       maxPets: typeof r.maxPets === 'number' ? r.maxPets : undefined,
+      petSize: typeof r.petSize === 'number' ? r.petSize : undefined,
       extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string }> : undefined,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
@@ -414,7 +420,11 @@ export class ConfigStore {
     for (const p of input) {
       if (!isRecord(p) || typeof p.id !== 'string' || p.id === '' || seen.has(p.id)) continue
       seen.add(p.id)
-      out.push({ id: p.id, skin: this.validSkin(typeof p.skin === 'string' ? p.skin : undefined) })
+      out.push({
+        id: p.id,
+        skin: this.validSkin(typeof p.skin === 'string' ? p.skin : undefined),
+        ...(typeof p.size === 'number' && Number.isInteger(p.size) && p.size >= 72 && p.size <= 200 ? { size: p.size } : {}),
+      })
       if (out.length >= cap) break
     }
     return out

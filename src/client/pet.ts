@@ -97,7 +97,7 @@ export interface PetHandle {
 type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 
 const BOTTOM = 18 // 距视口底 px
-const PET_H = 120 // 显示高度 px
+const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配置热改）
 
 /** 随机池（具体动作）。 */
 const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway']
@@ -245,6 +245,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 本宠皮肤 id：主宠读全局 skin；额外表读各自 pets 条目（缺条目回全局）。 */
   const mySkinId = (c: PetConfig): string =>
     petId === 'main' ? c.skin : (c.extraPets.find((p) => p.id === petId)?.skin ?? c.skin)
+  /** 本宠大小：主宠读 petSize；额外表读各自条目 size（缺省回 petSize）。 */
+  const mySize = (c: PetConfig): number =>
+    petId === 'main' ? c.petSize : (c.extraPets.find((p) => p.id === petId)?.size ?? c.petSize)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。 */
   const setMySkin = (skin: string): void => {
     if (petId === 'main') {
@@ -265,6 +268,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     else savePersisted({ ...doc, xByPet: { ...doc.xByPet, [petId]: v } })
   }
   const initCfg = config.getSnapshot()
+  let petH = mySize(initCfg)
   let skin: SkinDef = findSkin(mySkinId(initCfg))
   let muted = initCfg.muted
   let shoutOnDone = initCfg.shoutOnDone
@@ -294,7 +298,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // ---- DOM ----
   const root = document.createElement('div')
   root.style.cssText = [
-    'position:fixed', `bottom:${BOTTOM}px`, 'left:0', `height:${PET_H}px`,
+    'position:fixed', `bottom:${BOTTOM}px`, 'left:0', `height:${petH}px`,
     'display:flex', 'flex-direction:column', 'justify-content:flex-end',
     'z-index:99999', 'user-select:none', '-webkit-user-select:none',
     'touch-action:none', 'cursor:grab', 'filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))',
@@ -303,7 +307,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const img = document.createElement('img')
   img.src = skinIdle()
   img.draggable = false
-  img.style.cssText = `height:${PET_H}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
+  img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
@@ -366,8 +370,18 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     window.innerWidth - 80,
   )
   let facing: 1 | -1 = 1 // 1=朝右
+  /** 拎起高度（≤0，translateY 偏移）；拖拽垂直 1:1 跟随，松手重力坠落。
+   *  声明必须在 applyX 前（applyX 挂载即调用，TDZ）；applyX 必须带上它——
+   *  物理世界的 setX→applyX 曾把拎着时的 translateY 抹掉，宠物闪回地面（踩过）。 */
+  let liftY = 0
+  /** 坠落 rAF（0=不在坠落；坠落期 mood 保持 'drag' 挡 behave/动作）。 */
+  let fallRaf = 0
+  /** 拖拽末段指针采样（算松手水平初速度=抛掷）。 */
+  let moveSamples: Array<{ t: number; x: number }> = []
+  /** 最大拎起量（负值）：头顶留 24px。 */
+  const maxLiftAt = (): number => -(window.innerHeight - BOTTOM - petH - 24)
   const applyX = (): void => {
-    root.style.transform = `translateX(${x}px) scaleX(${facing})`
+    root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
     root.style.setProperty('--face', String(facing))
   }
   applyX()
@@ -381,7 +395,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const preloadW = (src: string | undefined): void => {
     if (src === undefined || frameW.has(src)) return
     const im = new Image()
-    im.onload = () => frameW.set(src, { w: (im.naturalWidth / im.naturalHeight) * PET_H, h: im.naturalHeight })
+    im.onload = () => frameW.set(src, { w: (im.naturalWidth / im.naturalHeight) * petH, h: im.naturalHeight })
     im.src = src
   }
   /** 声音元数据 + 帧尺寸预读（热更新新皮肤的素材也走这里补读）。 */
@@ -496,7 +510,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (resetVisual) {
       animRolling = false
       img.style.left = ''
-      img.style.height = `${PET_H}px` // 不能置 ''——那是清掉内联高度，图会按自然尺寸炸开
+      img.style.height = `${petH}px` // 不能置 ''——那是清掉内联高度，图会按自然尺寸炸开
     }
   }
   const mouthIdle = (): void => {
@@ -528,7 +542,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         img.src = f.src
         const e = frameW.get(f.src)
         const scale = e !== undefined && refH > 0 ? Math.min(1, e.h / refH) : 1
-        img.style.height = `${Math.round(PET_H * scale)}px`
+        img.style.height = `${Math.round(petH * scale)}px`
         // 宽帧（倒地）补偿：以站立帧中心为锚水平平移，并钳进视口（scaleX 翻转下符号随 facing 镜像）
         const idleW = frameW.get(cur().image)?.w
         if (idleW !== undefined && e !== undefined) {
@@ -1146,14 +1160,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let petStartX = 0
   let dragging = false
   let downAt = 0
-  /** 拎起高度（≤0，translateY 偏移）；拖拽垂直 1:1 跟随，松手重力坠落。 */
-  let liftY = 0
-  /** 坠落 rAF（0=不在坠落；坠落期 mood 保持 'drag' 挡 behave/动作）。 */
-  let fallRaf = 0
-  /** 拖拽末段指针采样（算松手水平初速度=抛掷）。 */
-  let moveSamples: Array<{ t: number; x: number }> = []
-  /** 最大拎起量（负值）：头顶留 24px。 */
-  const maxLiftAt = (): number => -(window.innerHeight - BOTTOM - PET_H - 24)
 
   root.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return
@@ -1391,6 +1397,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         getW: () => root.getBoundingClientRect().width,
         setX: (v) => { x = Math.min(Math.max(0, v), window.innerWidth - 60); applyX() },
         bump,
+        held: () => dragging || fallRaf !== 0,
       })
     } else if (!physicsOn && unregisterBody !== null) {
       unregisterBody()
@@ -1437,6 +1444,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       cutPlayingShout()
       skin = next
       if (mood !== 'fly') img.src = skinIdle()
+    }
+    const newH = mySize(c)
+    if (newH !== petH) {
+      petH = newH
+      root.style.height = `${petH}px`
+      img.style.height = `${petH}px`
+      frameW.clear() // 帧宽按 petH 换算的缓存全废，重新预读
+      preloadAssets(skins)
     }
   }
   const unsubConfig = config.subscribe(() => {

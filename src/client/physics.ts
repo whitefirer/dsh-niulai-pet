@@ -18,6 +18,8 @@ export interface PhysicsBody {
   setX(x: number): void
   /** 被撞反应：dir=被推向的方向，strong=重撞（砸落/高速）。 */
   bump(dir: 1 | -1, strong: boolean): void
+  /** 正被用户拎着/坠落中：不被分离推动（它只推别人；推着它还手=闪回地面，踩过）。 */
+  held(): boolean
 }
 
 const bodies = new Map<string, PhysicsBody>()
@@ -39,11 +41,25 @@ function tick(): void {
       const bx = b.getX()
       const overlap = Math.min(ax + a.getW(), bx + b.getW()) - Math.max(ax, bx)
       if (overlap > 4) {
-        // 分离：各推一半（a 左 b 右时 dir=1：a 向左、b 向右）
+        // 分离：各推一半（a 左 b 右时 dir=1：a 向左、b 向右）；
+        // 被拎着的除外——它全推给对方（用户的手最大）
         const dir = ax <= bx ? 1 : -1
+        const aHeld = a.held()
+        const bHeld = b.held()
         const push = overlap / 2 + 0.5
-        a.setX(ax - dir * push)
-        b.setX(bx + dir * push)
+        if (!aHeld && !bHeld) {
+          a.setX(ax - dir * push)
+          b.setX(bx + dir * push)
+        } else if (aHeld && !bHeld) {
+          b.setX(bx + dir * overlap)
+        } else if (bHeld && !aHeld) {
+          a.setX(ax - dir * overlap)
+        }
+        if (aHeld || bHeld) {
+          prevX.set(b.id, b.getX())
+          prevX.set(a.id, a.getX())
+          continue // 拎着的一方不吃 bump 判定
+        }
         // 接近速度 = 双方本帧位移之和；过阈且双方过冷却才撞
         const va = Math.abs(ax - (prevX.get(a.id) ?? ax))
         const vb = Math.abs(bx - (prevX.get(b.id) ?? bx))

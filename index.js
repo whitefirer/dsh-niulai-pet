@@ -112,8 +112,14 @@ export const Config = z.object({
   replyNiulai: z.boolean().default(true),
   /** 闲置打盹：开着时无聊会压扁变暗小睡（默认开；关掉永远精神）。 */
   sleepEnabled: z.boolean().default(true),
-  /** 主宠之外的额外桌宠（每只 id+皮肤；连主上限 3 只，客户端再围栏）。 */
-  extraPets: z.array(z.object({ id: z.string(), skin: z.string() })).default([]),
+  /** 主宠之外的额外桌宠（每只 id+皮肤+大小；连主上限 maxPets，客户端再围栏）。 */
+  extraPets: z.array(z.object({
+    id: z.string(),
+    skin: z.string(),
+    size: z.number().step(1).min(72).max(200).default(120),
+  })).default([]),
+  /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
+  petSize: z.number().step(1).min(72).max(200).default(120),
   /** 物理碰撞：多只桌宠互相挤/弹飞（默认关）。 */
   physics: z.boolean().default(false),
   /** 桌宠数量上限（连主宠，1-9，默认 3）。 */

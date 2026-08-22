@@ -78,6 +78,10 @@ const zh = {
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
   skin: '皮肤',
+  petTarget: '配置对象',
+  petMain: '主宠',
+  petN: '桌宠',
+  petSize: '桌宠大小',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
   packs: '自定义角色',
@@ -164,6 +168,10 @@ const en: Record<keyof typeof zh, string> = {
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
   skin: 'Skin',
+  petTarget: 'Configure',
+  petMain: 'Main pet',
+  petN: 'Pet',
+  petSize: 'Pet size',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
   packs: 'Custom characters',
@@ -909,6 +917,8 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const [open, setOpen] = useState(false)
   // 语音开关的失败原因分态：denied=授权被拒/iframe 策略；no-mic=无设备（NotFoundError）
   const [voiceIssue, setVoiceIssue] = useState<'denied' | 'no-mic' | null>(null)
+  // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
+  const [petSel, setPetSel] = useState('main')
   const { t } = props
   const state = props.useNiulaiPet((s) => s)
   if (!state.ready) return null
@@ -960,10 +970,21 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packs !== undefined ? packs.subscribe : noopSubscribe,
     packs !== undefined ? packs.getSnapshot : EMPTY_PACKS,
   )
-  const skinName = packSnap.skins.find((s) => s.id === cfg.skin)?.name ?? cfg.skin
-  const skinDefaults = defaultActionsFor(packSnap.characters, cfg.skin)
-  const doneAction = cfg.actions[cfg.skin]?.done ?? skinDefaults.done
-  const pokeAction = cfg.actions[cfg.skin]?.poke ?? skinDefaults.poke
+  // 配置对象：主宠或某只额外表（皮肤/大小按只存；动作绑定按皮肤全局共享）
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize }))]
+  const target = petList.find((p) => p.id === petSel) ?? petList[0]
+  const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
+  const targetDefaults = defaultActionsFor(packSnap.characters, target.skin)
+  const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
+  const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
+  const setTargetSkin = (v: string): void => {
+    if (target.id === 'main') props.set({ skin: v })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v } : p) })
+  }
+  const setTargetSize = (v: number): void => {
+    if (target.id === 'main') props.set({ petSize: v })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, size: v } : p) })
+  }
   return (
     <li data-niulai-card style={{
       listStyle: 'none', border: `1px solid ${colors.border}`, borderRadius: 12,
@@ -1116,32 +1137,54 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 onCommit={(quips) => { props.set({ quips }) }} />
               <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('quipsHint')}</div>
             </div>
-            <Row label={t('skin')}>
+            {petList.length > 1
+              ? (
+                <Row label={t('petTarget')}>
+                  <select
+                    style={selectStyle(disabled)}
+                    value={target.id}
+                    disabled={disabled}
+                    onChange={(e) => { setPetSel(e.target.value) }}
+                  >
+                    {petList.map((p, i) => (
+                      <option key={p.id} value={p.id} style={optionStyle}>
+                        {i === 0 ? t('petMain') : `${t('petN')} ${i + 1}`} · {packSnap.skins.find((s) => s.id === p.skin)?.name ?? p.skin}
+                      </option>
+                    ))}
+                  </select>
+                </Row>
+              )
+              : null}
+            <Row label={petList.length > 1 ? `${t('skin')} · ${targetSkinName}` : t('skin')}>
               <select
                 style={selectStyle(disabled)}
-                value={cfg.skin}
+                value={target.skin}
                 disabled={disabled}
-                onChange={(e) => { props.set({ skin: e.target.value }) }}
+                onChange={(e) => { setTargetSkin(e.target.value) }}
               >
                 {packSnap.skins.map((s) => <option key={s.id} value={s.id} style={optionStyle}>{s.name}</option>)}
               </select>
             </Row>
-            <Row label={`${t('doneAction')} · ${skinName}`}>
+            <Row label={t('petSize')}>
+              <NumberField value={target.size} min={72} max={200} disabled={disabled} label={t('petSize')}
+                onCommit={setTargetSize} />
+            </Row>
+            <Row label={`${t('doneAction')} · ${targetSkinName}`}>
               <select
                 style={selectStyle(disabled)}
-                value={doneAction}
+                value={targetDone}
                 disabled={disabled}
-                onChange={(e) => { props.setSkinAction(cfg.skin, 'done', e.target.value as ActionName) }}
+                onChange={(e) => { props.setSkinAction(target.skin, 'done', e.target.value as ActionName) }}
               >
                 {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
-            <Row label={`${t('pokeAction')} · ${skinName}`}>
+            <Row label={`${t('pokeAction')} · ${targetSkinName}`}>
               <select
                 style={selectStyle(disabled)}
-                value={pokeAction}
+                value={targetPoke}
                 disabled={disabled}
-                onChange={(e) => { props.setSkinAction(cfg.skin, 'poke', e.target.value as ActionName) }}
+                onChange={(e) => { props.setSkinAction(target.skin, 'poke', e.target.value as ActionName) }}
               >
                 {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
