@@ -51,6 +51,8 @@ export interface PetConfig {
   shoutLoop: boolean
   /** 喊完/循环被打断时妈妈回一句「牛来！」。 */
   replyNiulai: boolean
+  /** 闲置打盹（压扁变暗）开关；关掉永不进入。 */
+  sleepEnabled: boolean
   /** 语音停喊：循环喊期间开麦识别「牛来」（默认关；开启需麦克风授权）。 */
   voiceControl: boolean
   /** 麦克风设备 id（空 = 系统默认）。 */
@@ -84,6 +86,7 @@ export interface Persisted {
   doneDelaySec?: number
   shoutLoop?: boolean
   replyNiulai?: boolean
+  sleepEnabled?: boolean
   voiceControl?: boolean
   micDeviceId?: string
   voiceThreshold?: number
@@ -278,7 +281,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -340,6 +343,7 @@ export class ConfigStore {
         ? Math.min(120, Math.max(0, p.doneDelaySec)) : 0,
       shoutLoop: p.shoutLoop === true,
       replyNiulai: p.replyNiulai !== false,
+      sleepEnabled: p.sleepEnabled !== false,
       voiceControl: p.voiceControl === true,
       micDeviceId: typeof p.micDeviceId === 'string' ? p.micDeviceId : '',
       voiceThreshold: typeof p.voiceThreshold === 'number' && p.voiceThreshold >= 0.3 && p.voiceThreshold <= 0.85
@@ -367,6 +371,7 @@ export class ConfigStore {
       doneDelaySec: typeof r.doneDelaySec === 'number' ? r.doneDelaySec : undefined,
       shoutLoop: r.shoutLoop === true,
       replyNiulai: r.replyNiulai !== false,
+      sleepEnabled: r.sleepEnabled !== false,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
       voiceThreshold: typeof r.voiceThreshold === 'number' ? r.voiceThreshold : undefined,

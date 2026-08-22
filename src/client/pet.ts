@@ -244,6 +244,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let doneDelaySec = initCfg.doneDelaySec
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
+  let sleepOn = initCfg.sleepEnabled
   masterVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
@@ -858,7 +859,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         const span = Math.min(260, window.innerWidth * 0.2)
         const target = Math.min(Math.max(0, x + (Math.random() * 2 - 1) * span * 2), window.innerWidth - 70)
         if (Math.abs(target - x) > 40) void walkTo(target)
-      } else if (rollDie < 0.78) {
+      } else if (rollDie < 0.78 && sleepOn) {
         void sleepFor(4000 + Math.random() * 4000)
       } else {
         // 原地扭一扭
@@ -1193,6 +1194,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'bool', label: '📣 完成时喊', on: shoutOnDone, fn: () => { config.set({ shoutOnDone: !shoutOnDone }) } },
       { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
       { kind: 'bool', label: '💬 气泡唠叨', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
+      { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
       { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
       { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { config.set({ skin: nextSkin.id }) } },
@@ -1258,6 +1260,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     doneDelaySec = c.doneDelaySec
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
+    sleepOn = c.sleepEnabled
+    if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
     masterVolume = c.volume
     voiceControlOn = c.voiceControl
     micGain = c.micGain // 增益不进重启 diff：voice 馈送路径逐块读，热生效

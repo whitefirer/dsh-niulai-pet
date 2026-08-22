@@ -35,6 +35,7 @@ const zh = {
   shoutCount: '完成连喊',
   doneDelay: '完成延迟（秒）',
   shoutLoop: '循环喊到互动停止',
+  sleepEnabled: '闲置打盹（变灰变矮）',
   replyNiulai: '妈妈回应「牛来」',
   voiceControl: '语音停喊（喊「牛来」）',
   voiceEngine: '识别引擎',
@@ -81,8 +82,10 @@ const zh = {
   packsHint: '导入 .nlpack.zip 角色包；不会做包？看',
   packsGuide: '制作指南',
   packsAssist: '让 dsh 帮我做',
-  packsAssistDone: '已填进首页输入框，去发送吧',
-  packsAssistBusy: '首页输入框已有内容，未覆盖——清空后再点',
+  packsAssistDone: '已填进输入框，去发送吧',
+  packsAssistBusy: '输入框已有内容，未覆盖——清空后再点',
+  packsAssistCopied: '没找到输入框，prompt 已复制——到任意会话里粘贴发送',
+  packsAssistCopyFail: '没找到输入框，复制也失败了——请手动复制指南链接给 AI',
   packImport: '导入角色包',
   packImporting: '解析中…',
   packDelete: '删除',
@@ -116,6 +119,7 @@ const en: Record<keyof typeof zh, string> = {
   shoutCount: 'Shout repeats',
   doneDelay: 'Done delay (s)',
   shoutLoop: 'Loop shout until touched',
+  sleepEnabled: 'Idle nap (dims & squashes)',
   replyNiulai: 'Mom answers "Niulai!"',
   voiceControl: 'Voice stop (shout "Niulai!")',
   voiceEngine: 'Recognition engine',
@@ -162,8 +166,10 @@ const en: Record<keyof typeof zh, string> = {
   packsHint: 'Import .nlpack.zip character packs; new to pack authoring? See the',
   packsGuide: 'authoring guide',
   packsAssist: 'Let dsh build it',
-  packsAssistDone: 'Prompt filled into the home input — go send it',
-  packsAssistBusy: 'Home input has content — not overwritten; clear it and retry',
+  packsAssistDone: 'Prompt filled into the input — go send it',
+  packsAssistBusy: 'Input has content — not overwritten; clear it and retry',
+  packsAssistCopied: 'No input found — prompt copied to clipboard; paste it into any session',
+  packsAssistCopyFail: 'No input found and copy failed — copy the guide link to your AI manually',
   packImport: 'Import pack',
   packImporting: 'Parsing…',
   packDelete: 'Delete',
@@ -759,12 +765,27 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
   const fileRef = useRef<HTMLInputElement>(null)
   const customs = snap.characters.filter((c) => c.custom === true)
 
-  /** 把预制 prompt 填进 dsh 首页输入框（React 受控组件要走原生 setter + input 事件）。 */
+  /** 把预制 prompt 填进 dsh 输入框（React 受控组件要走原生 setter + input 事件）。
+   *  候选链：首页新会话框（placeholder 含「构建」且可见）→ 任何可见输入框
+   *  （会话页追问框——prompt 发进当前会话一样干活）→ 都没有则复制到剪贴板。 */
   const assist = (): void => {
-    const el = document.querySelector('textarea[placeholder*="构建"]') ?? document.querySelector('textarea')
-    if (!(el instanceof HTMLTextAreaElement)) return
+    const tas = [...document.querySelectorAll('textarea')]
+      .filter((x): x is HTMLTextAreaElement => x instanceof HTMLTextAreaElement)
+    const el = tas.find((x) => x.placeholder.includes('构建') && x.offsetParent !== null)
+      ?? tas.find((x) => x.offsetParent !== null)
+    const flash = (msg: string): void => {
+      setAssistMsg(msg)
+      setTimeout(() => { setAssistMsg(null) }, 5000)
+    }
+    if (el === undefined) {
+      void navigator.clipboard.writeText(ASSIST_PROMPT).then(
+        () => { flash(t('packsAssistCopied')) },
+        () => { flash(t('packsAssistCopyFail')) },
+      )
+      return
+    }
     if (el.value.trim() !== '') {
-      setAssistMsg(t('packsAssistBusy'))
+      flash(t('packsAssistBusy'))
       return
     }
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(el, ASSIST_PROMPT)
@@ -774,8 +795,7 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
     // 只按文本匹配，不用 aria-label——顶栏还有个 aria-label=关闭 的整窗按钮，点错完蛋）
     const closeBtn = [...document.querySelectorAll('button')].find((b) => ['关闭', 'Close'].includes(b.textContent.trim()))
     closeBtn?.click()
-    setAssistMsg(t('packsAssistDone'))
-    setTimeout(() => { setAssistMsg(null) }, 4000)
+    flash(t('packsAssistDone'))
   }
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>): void => {
@@ -985,6 +1005,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('shoutLoop')}>
               <Switch on={cfg.shoutLoop} disabled={disabled} label={t('shoutLoop')} onChange={(on) => { props.set({ shoutLoop: on }) }} />
+            </Row>
+            <Row label={t('sleepEnabled')}>
+              <Switch on={cfg.sleepEnabled} disabled={disabled} label={t('sleepEnabled')} onChange={(on) => { props.set({ sleepEnabled: on }) }} />
             </Row>
             <Row label={t('replyNiulai')}>
               <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
