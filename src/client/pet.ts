@@ -709,6 +709,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
   }
 
+  let sleepAnim: Animation | null = null // 睡眠压扁动画（wakeFromSleep 主动取消用）
+
   const sleepFor = async (ms: number): Promise<void> => {
     if (mood !== 'idle' || shouting || animRolling) return // 叫唤着/演出滚放着不许睡：压扁+变暗会把演出演成梦游
     mood = 'sleep'
@@ -717,6 +719,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.78)' }],
       { duration: 500, fill: 'forwards', easing: 'ease-out' },
     )
+    sleepAnim = squash
     await squash.finished.catch(() => {})
     img.style.filter = 'brightness(.82)'
     await new Promise((r) => window.setTimeout(r, ms))
@@ -735,6 +738,17 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     wake.cancel()
     breathe.play()
     mood = 'idle'
+  }
+
+  /** 动作/喊叫触发时若睡着（压扁变暗），立刻恢复正常高度与亮度——
+   *  睡着做动作 = 梦游。等 sleepFor 自己醒太慢（剩余睡眠时长不可控），主动取消。 */
+  const wakeFromSleep = (): void => {
+    if (mood !== 'sleep') return
+    mood = 'idle' // sleepFor 的延时醒来检查见此即走「被打断」路径归位
+    img.style.filter = ''
+    sleepAnim?.cancel()
+    sleepAnim = null
+    breathe.play()
   }
 
   /** 飞行统一航迹：dive=中低空平飞掠场（两度轻柔起伏），arc=弧线跃出再落下（两端低中间高）。 */
@@ -811,6 +825,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 事件动作派发：signature 解析为当前皮肤签名；random 现场抽。 */
   const runAction = (name: ActionName): void => {
     if (destroyed || mood === 'drag' || mood === 'fly') return
+    wakeFromSleep() // 睡着（压扁变暗）触发动作先回正常态，不做梦游演出
     let pick = name
     if (pick === 'signature') pick = cur().signature
     if (pick === 'random') pick = ACTION_POOL[Math.floor(Math.random() * ACTION_POOL.length)]
@@ -1064,9 +1079,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
 
   /** 只喊不跳（菜单「喊一声」/戳一下的出声部分）：嘴部张合与气泡都撑满喊声全长，
-   *  喊完妈妈回一句（开关控制；loop 打断已回过的不重复）。 */
+   *  喊完妈妈回一句（开关控制；loop 打断已回过的不重复）。
+   *  再喊先掐旧的：叠着放 = 两重唱（长笑声被连戳时尤其灾难）。 */
   const shout = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
+    wakeFromSleep()
+    cutPlayingShout()
     const ms = playVoice()
     if (ms > 0) {
       mouthShout(ms)
@@ -1258,6 +1276,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     else syncVoice() // 循环跑着时开/关语音开关或静音，立即反映到麦克风
     const next = findSkin(c.skin)
     if (next !== skin) {
+      // 换皮肤：在播喊声/连喊链/循环喊当场掐断（带着旧皮肤的声音换新皮很出戏）
+      stopShoutLoop(false, '换皮肤')
+      cutPlayingShout()
       skin = next
       if (mood !== 'fly') img.src = skinIdle()
     }
