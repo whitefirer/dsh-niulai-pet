@@ -16,7 +16,7 @@
  * 更老版本回退 localStorage），切换皮肤不清空另一皮肤的绑定。
  */
 
-import { ConfigStore, loadPersisted, savePersisted, type Persisted } from './config.js'
+import { ConfigStore, loadPersisted, savePersisted, type Persisted, type PetConfig } from './config.js'
 import { startVoiceStop, type VoiceStopHandle } from './voice.js'
 import { createKwsMatcher, kwsKeywordsKey } from './kws.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
@@ -70,6 +70,10 @@ export interface SkinDef {
 export interface PetAssets {
   skins: SkinDef[]
   defaultSkin: string
+  /** 实例 id：'main'（缺省）= 主宠；额外表为各自 id。皮肤/位置按 id 分存。 */
+  petId?: string
+  /** 额外表的初始 x（无位置记忆时；主宠右侧错位摆开）。 */
+  defaultX?: number
   /** 皮肤列表热更新通道（自定义角色包装载/增删时推送新列表；不订阅则静态）。 */
   subscribeSkins?: (fn: (skins: SkinDef[]) => void) => () => void
   /** 皮肤的事件默认绑定（角色包 events 声明；缺省 done=signature / poke=hops）。 */
@@ -235,8 +239,32 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const loadDoc = (): Persisted => loadPersisted(skinIds(), assets.defaultSkin)
   const findSkin = (id: string | undefined): SkinDef =>
     skins.find((s) => s.id === id) ?? skins[0]
+  /** 本宠 id（'main'=主宠；额外表按 id 分存皮肤与位置）。 */
+  const petId = assets.petId ?? 'main'
+  /** 本宠皮肤 id：主宠读全局 skin；额外表读各自 pets 条目（缺条目回全局）。 */
+  const mySkinId = (c: PetConfig): string =>
+    petId === 'main' ? c.skin : (c.extraPets.find((p) => p.id === petId)?.skin ?? c.skin)
+  /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。 */
+  const setMySkin = (skin: string): void => {
+    if (petId === 'main') {
+      config.set({ skin })
+      return
+    }
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin } : p)
+    config.set({ extraPets: list })
+  }
+  /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。 */
+  const loadMyX = (): number | undefined => {
+    const doc = loadDoc()
+    return petId === 'main' ? doc.x : doc.xByPet?.[petId]
+  }
+  const saveMyX = (v: number): void => {
+    const doc = loadDoc()
+    if (petId === 'main') savePersisted({ ...doc, x: v })
+    else savePersisted({ ...doc, xByPet: { ...doc.xByPet, [petId]: v } })
+  }
   const initCfg = config.getSnapshot()
-  let skin: SkinDef = findSkin(initCfg.skin)
+  let skin: SkinDef = findSkin(mySkinId(initCfg))
   let muted = initCfg.muted
   let shoutOnDone = initCfg.shoutOnDone
   let talkative = initCfg.talkative
@@ -330,9 +358,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   })
   keeper.observe(document.body, { childList: true })
 
-  // 起始 x（记忆或默认右下偏左，避开右下角卡片区）
+  // 起始 x（记忆或默认右下偏左，避开右下角卡片区；额外表按 defaultX 错位）
   let x = Math.min(
-    Math.max(0, loadDoc().x ?? window.innerWidth - 320),
+    Math.max(0, loadMyX() ?? assets.defaultX ?? window.innerWidth - 320),
     window.innerWidth - 80,
   )
   let facing: 1 | -1 = 1 // 1=朝右
@@ -1165,7 +1193,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (wasDragging) {
       mood = 'idle'
       root.style.transform = `translateX(${x}px) scaleX(${facing})`
-      savePersisted({ ...loadDoc(), x })
+      saveMyX(x)
       // 落地回弹
       void hop(20, 260)
       if (!destroyed) breathe.play()
@@ -1197,13 +1225,34 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
       { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
       { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
-      { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { config.set({ skin: nextSkin.id }) } },
+      { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '📢 喊一声', fn: () => { shout() } },
       // 找不到打开设置页的宿主 API（rc.7 无此服务），气泡指路代替跳转
       { kind: 'action', label: '⚙️ 设置', fn: () => { showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200) } },
       { kind: 'action', label: 'ℹ️ 关于', fn: () => { about.style.display = about.style.display === 'block' ? 'none' : 'block' } },
     ]
+    // 多只桌宠（数据按只分存：皮肤/位置各自独立，行为配置全局共享）：
+    // 主宠可加（连主上限 3 只），额外表可送走；增减由 index.ts 的实例管家落地
+    const extraList = config.getSnapshot().extraPets
+    if (petId === 'main' && extraList.length < 2) {
+      rows.splice(7, 0, {
+        kind: 'action', label: '🐾 再添一只', fn: () => {
+          const c = config.getSnapshot()
+          if (c.extraPets.length >= 2) return
+          // 新宠皮肤用菜单正循环到的下一只（不然三只同款没有乐园感）
+          config.set({ extraPets: [...c.extraPets, { id: `pet${Date.now().toString(36)}`, skin: nextSkin.id }] })
+        },
+      })
+    }
+    if (petId !== 'main') {
+      rows.splice(7, 0, {
+        kind: 'action', label: '🗑 送走这只', fn: () => {
+          const c = config.getSnapshot()
+          config.set({ extraPets: c.extraPets.filter((p) => p.id !== petId) })
+        },
+      })
+    }
     for (const r of rows) {
       const row = document.createElement('div')
       row.style.cssText = 'padding:3px 14px;cursor:pointer;border-radius:6px;white-space:nowrap;display:flex;align-items:center;justify-content:space-between;gap:14px'
@@ -1278,7 +1327,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
     if (muted || !shoutLoopOn) stopShoutLoop(false, '静音/关循环') // 静音/关循环立即生效（设置开关不算互动，不回一句）
     else syncVoice() // 循环跑着时开/关语音开关或静音，立即反映到麦克风
-    const next = findSkin(c.skin)
+    const next = findSkin(mySkinId(c))
     if (next !== skin) {
       // 换皮肤：在播喊声/连喊链/循环喊当场掐断（带着旧皮肤的声音换新皮很出戏）
       stopShoutLoop(false, '换皮肤')

@@ -125,14 +125,39 @@ export function apply(ctx: ClientCtx): void {
     const store = new ConfigStore({ skinIds: registry.getSnapshot().skinIds, defaultSkin: 'niulai' })
     registry.subscribe(() => store.updateSkinIds(registry.getSnapshot().skinIds))
     const voiceDebug = new VoiceDebugBus()
-    const pet = mountPet({
+    const mkAssets = (petId?: string, defaultX?: number): Parameters<typeof mountPet>[0] => ({
       skins: registry.getSnapshot().skins,
       defaultSkin: 'niulai',
+      ...(petId !== undefined ? { petId } : {}),
+      ...(defaultX !== undefined ? { defaultX } : {}),
       subscribeSkins: (fn) => registry.subscribe(() => fn(registry.getSnapshot().skins)),
       defaultActions: (gid) => defaultActionsFor(registry.getSnapshot().characters, gid),
-    }, store, voiceDebug)
+    })
+    const pet = mountPet(mkAssets(), store, voiceDebug)
+    // 额外表实例管家：盯配置里的 extraPets 增删实例（数据按只分存见 pet.ts petId）
+    const extraPets = new Map<string, PetHandle>()
+    const syncExtraPets = (): void => {
+      const want = store.getSnapshot().extraPets
+      want.forEach((p, idx) => {
+        if (!extraPets.has(p.id)) {
+          extraPets.set(p.id, mountPet(mkAssets(p.id, Math.max(0, window.innerWidth - 320 - 150 * (idx + 1))), store, voiceDebug))
+        }
+      })
+      for (const [id, h] of extraPets) {
+        if (!want.some((p) => p.id === id)) {
+          h.destroy()
+          extraPets.delete(id)
+        }
+      }
+    }
+    syncExtraPets()
+    store.subscribe(syncExtraPets)
     void registry.init()
-    watchSessions(ctx, { onDone: pet.celebrate, onBusy: pet.setBusy })
+    // 庆祝/忙闲广播到每一只（任务完成全园同庆；循环喊/语音停喊仍是各只自己的状态）
+    watchSessions(ctx, {
+      onDone: () => { pet.celebrate(); for (const h of extraPets.values()) h.celebrate() },
+      onBusy: (b) => { pet.setBusy(b); for (const h of extraPets.values()) h.setBusy(b) },
+    })
     // 设置卡片（dsh rc.7+）：可选注入——settingsScope/slots/locale 任一缺席
     // （rc.6 及更早）子 fiber 就永远等不到服务，静默没有卡片；桌宠与菜单
     // 不受影响，配置继续走 localStorage 后端。
@@ -143,7 +168,7 @@ export function apply(ctx: ClientCtx): void {
     if (new URLSearchParams(location.search).has('petdebug')) {
       ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
     }
-    ctx.effect(() => () => pet.destroy(), 'niulai-pet pet')
+    ctx.effect(() => () => { pet.destroy(); for (const h of extraPets.values()) h.destroy() }, 'niulai-pet pet')
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true })

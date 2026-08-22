@@ -53,6 +53,8 @@ export interface PetConfig {
   replyNiulai: boolean
   /** 闲置打盹（压扁变暗）开关；关掉永不进入。 */
   sleepEnabled: boolean
+  /** 主宠之外的额外桌宠（每只 id 唯一；皮肤按只存，行为配置全局共享）。上限 2。 */
+  extraPets: Array<{ id: string; skin: string }>
   /** 语音停喊：循环喊期间开麦识别「牛来」（默认关；开启需麦克风授权）。 */
   voiceControl: boolean
   /** 麦克风设备 id（空 = 系统默认）。 */
@@ -87,6 +89,9 @@ export interface Persisted {
   shoutLoop?: boolean
   replyNiulai?: boolean
   sleepEnabled?: boolean
+  extraPets?: Array<{ id: string; skin: string }>
+  /** 额外表的位置 x（按设备，petId → x）。主宠仍用 x 键。 */
+  xByPet?: Record<string, number>
   voiceControl?: boolean
   micDeviceId?: string
   voiceThreshold?: number
@@ -281,7 +286,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'extraPets', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -344,6 +349,7 @@ export class ConfigStore {
       shoutLoop: p.shoutLoop === true,
       replyNiulai: p.replyNiulai !== false,
       sleepEnabled: p.sleepEnabled !== false,
+      extraPets: this.sanitizeExtraPets(p.extraPets),
       voiceControl: p.voiceControl === true,
       micDeviceId: typeof p.micDeviceId === 'string' ? p.micDeviceId : '',
       voiceThreshold: typeof p.voiceThreshold === 'number' && p.voiceThreshold >= 0.3 && p.voiceThreshold <= 0.85
@@ -372,6 +378,7 @@ export class ConfigStore {
       shoutLoop: r.shoutLoop === true,
       replyNiulai: r.replyNiulai !== false,
       sleepEnabled: r.sleepEnabled !== false,
+      extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string }> : undefined,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
       voiceThreshold: typeof r.voiceThreshold === 'number' ? r.voiceThreshold : undefined,
@@ -385,6 +392,20 @@ export class ConfigStore {
   private validSkin(id: string | undefined): string {
     if (id !== undefined && this.skinIds.includes(id)) return id
     return this.defaultSkin
+  }
+
+  /** 额外表清洗：id/皮肤形状 + 皮肤白名单 + 去重 + 上限 2 只。 */
+  private sanitizeExtraPets(input: unknown): Array<{ id: string; skin: string }> {
+    if (!Array.isArray(input)) return []
+    const out: Array<{ id: string; skin: string }> = []
+    const seen = new Set<string>()
+    for (const p of input) {
+      if (!isRecord(p) || typeof p.id !== 'string' || p.id === '' || seen.has(p.id)) continue
+      seen.add(p.id)
+      out.push({ id: p.id, skin: this.validSkin(typeof p.skin === 'string' ? p.skin : undefined) })
+      if (out.length >= 2) break
+    }
+    return out
   }
 
   /** 绑定清洗：皮肤 id 白名单 + 字段形状；动作名合法性由消费端 asAction 回落与 Host schema 共同围栏。 */

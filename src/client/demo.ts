@@ -229,6 +229,30 @@ const start = (): void => {
     defaultSkin: 'niulai',
     subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
   }, store)
+  // 额外表实例管家（同 index.ts；试玩页也开乐园模式）
+  const extraPets = new Map<string, PetHandle>()
+  const syncExtraPets = (): void => {
+    const want = store.getSnapshot().extraPets
+    want.forEach((p, idx) => {
+      if (!extraPets.has(p.id)) {
+        extraPets.set(p.id, mountPet({
+          skins: currentSkins,
+          defaultSkin: 'niulai',
+          petId: p.id,
+          defaultX: Math.max(0, window.innerWidth - 320 - 150 * (idx + 1)),
+          subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
+        }, store))
+      }
+    })
+    for (const [id, h] of extraPets) {
+      if (!want.some((p) => p.id === id)) {
+        h.destroy()
+        extraPets.delete(id)
+      }
+    }
+  }
+  syncExtraPets()
+  store.subscribe(syncExtraPets)
   mountSim(pet)
   mountMuteBtn(pet)
   mountVoiceBtn(store)
