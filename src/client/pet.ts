@@ -121,7 +121,6 @@ export interface PetHandle {
 
 type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 
-const BOTTOM = 18 // 距视口底 px
 const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配置热改）
 
 /** 随机池（具体动作）。 */
@@ -352,6 +351,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
   let sleepOn = initCfg.sleepEnabled
+  let walkOn = initCfg.walkEnabled
+  let groundOff = initCfg.groundOffset
   let physicsOn = initCfg.physics
   let hiddenAll = initCfg.hidden
   masterVolume = initCfg.volume
@@ -380,7 +381,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // ---- DOM ----
   const root = document.createElement('div')
   root.style.cssText = [
-    'position:fixed', `bottom:${BOTTOM}px`, 'left:0', `height:${petH}px`,
+    'position:fixed', `bottom:${groundOff}px`, 'left:0', `height:${petH}px`,
     'display:flex', 'flex-direction:column', 'justify-content:flex-end',
     'z-index:99999', 'user-select:none', '-webkit-user-select:none',
     'touch-action:none', 'cursor:grab', 'filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))',
@@ -461,7 +462,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 拖拽末段指针采样（算松手水平初速度=抛掷）。 */
   let moveSamples: Array<{ t: number; x: number }> = []
   /** 最大拎起量（负值）：头顶留 24px。 */
-  const maxLiftAt = (): number => -(window.innerHeight - BOTTOM - petH - 24)
+  const maxLiftAt = (): number => -(window.innerHeight - groundOff - petH - 24)
   const applyX = (): void => {
     root.style.transform = `translateX(${x}px) scaleX(${facing}) translateY(${liftY}px)`
     root.style.setProperty('--face', String(facing))
@@ -1014,7 +1015,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       const rollDie = Math.random()
       if (rollDie < 0.3) {
         void hop(26, 300) // 原地小跳
-      } else if (rollDie < 0.62 && !demoDoll && !pinned) {
+      } else if (rollDie < 0.62 && walkOn && !demoDoll && !pinned) {
         // 展示性挂载（全家福列队）与被钉住的（合影 C 位主宠）不游走，站在位槽里
         clampX()
         const span = Math.min(260, window.innerWidth * 0.2)
@@ -1449,6 +1450,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
+      { kind: 'bool', label: '🚶 随意走动', on: walkOn, fn: () => { config.set({ walkEnabled: !walkOn }) } },
       { kind: 'bool', label: '🧲 物理碰撞', on: physicsOn, fn: () => { config.set({ physics: !physicsOn }) } },
       { kind: 'bool', label: '🙈 隐藏全部', on: hiddenAll, fn: () => { config.set({ hidden: !hiddenAll }) } },
       { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
@@ -1578,6 +1580,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     replyOn = c.replyNiulai
     sleepOn = c.sleepEnabled
     if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
+    walkOn = c.walkEnabled
+    groundOff = c.groundOffset
+    root.style.bottom = `${groundOff}px` // 离地高度（全局共享，各实例同步）
     physicsOn = c.physics
     hiddenAll = c.hidden
     root.style.display = c.hidden ? 'none' : '' // 隐藏全部（配置全局共享，所有实例同步隐没）

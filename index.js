@@ -112,6 +112,10 @@ export const Config = z.object({
   replyNiulai: z.boolean().default(true),
   /** 闲置打盹：开着时无聊会压扁变暗小睡（默认关；开了才会打盹）。 */
   sleepEnabled: z.boolean().default(false),
+  /** 随意走动：闲置时随机走位（默认开；关掉原地活动不走位）。 */
+  walkEnabled: z.boolean().default(true),
+  /** 离地高度：桌宠站立线距视口底的 px（默认 0=贴底；躲任务栏/Dock 往上调）。 */
+  groundOffset: z.number().step(1).min(0).max(300).default(0),
   /** 主宠之外的额外桌宠（每只 id+皮肤+大小+语录；连主上限 maxPets，客户端再围栏）。 */
   extraPets: z.array(z.object({
     id: z.string(),

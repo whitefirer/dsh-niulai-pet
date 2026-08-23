@@ -37,6 +37,8 @@ const zh = {
   doneDelay: '完成延迟（秒）',
   shoutLoop: '循环喊到互动停止',
   sleepEnabled: '闲置打盹（变灰变矮）',
+  walkEnabled: '随意走动（闲置游走）',
+  groundOffset: '离地高度（px）',
   physics: '物理碰撞（互相挤/弹飞）',
   maxPets: '桌宠数量上限',
   replyNiulai: '妈妈回应「牛来」',
@@ -133,6 +135,8 @@ const en: Record<keyof typeof zh, string> = {
   doneDelay: 'Done delay (s)',
   shoutLoop: 'Loop shout until touched',
   sleepEnabled: 'Idle nap (dims & squashes)',
+  walkEnabled: 'Wander (idle walk)',
+  groundOffset: 'Ground height (px)',
   physics: 'Pet physics (jostle & bounce)',
   maxPets: 'Max pets on screen',
   replyNiulai: 'Mom answers "Niulai!"',
@@ -1092,6 +1096,13 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('sleepEnabled')}>
               <Switch on={cfg.sleepEnabled} disabled={disabled} label={t('sleepEnabled')} onChange={(on) => { props.set({ sleepEnabled: on }) }} />
+            </Row>
+            <Row label={t('walkEnabled')}>
+              <Switch on={cfg.walkEnabled} disabled={disabled} label={t('walkEnabled')} onChange={(on) => { props.set({ walkEnabled: on }) }} />
+            </Row>
+            <Row label={t('groundOffset')}>
+              <NumberField value={cfg.groundOffset} min={0} max={300} disabled={disabled} label={t('groundOffset')}
+                onCommit={(n) => { props.set({ groundOffset: n }) }} />
             </Row>
             <Row label={t('physics')}>
               <Switch on={cfg.physics} disabled={disabled} label={t('physics')} onChange={(on) => { props.set({ physics: on }) }} />

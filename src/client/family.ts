@@ -11,8 +11,9 @@ import type { PetHandle } from './pet.js'
 export const FAMILY_LEFT = ['panda', 'dagou', 'orig', 'xiaonailong', 'nailong']
 /** 均匀列队右翼（左→右书写，靠中在前）。 */
 export const FAMILY_RIGHT = ['nailong', 'xiaonailong', 'young', 'cat', 'whale']
-/** 层次合影两翼（数组序=绘制序=中心向外：后挂的压先挂的）——奶龙贴 C 位，小奶龙最外两侧。 */
-export const FAMILY_LAYERED_WINGS = ['nailong', 'nailong', 'young', 'orig', 'cat', 'dagou', 'panda', 'whale', 'xiaonailong', 'xiaonailong']
+/** 层次合影两翼（数组序=绘制序=中心向外：后挂的压先挂的）——奶龙贴 C 位，小奶龙最外两侧；
+ *  趴睡猫贴地矮个，排翼列后段（后绘制压前）相当于蹲前排，免得被邻居整个埋掉。 */
+export const FAMILY_LAYERED_WINGS = ['nailong', 'nailong', 'young', 'orig', 'panda', 'dagou', 'cat', 'whale', 'xiaonailong', 'xiaonailong']
 
 /** 均匀列队摆位：整体页面居中、28px 紧凑间距。members 按左→右。 */
 export function layoutUniform(members: PetHandle[]): void {

@@ -18,7 +18,7 @@
 **[在线试玩（免安装）](https://whitefirer.org/niulai-pet/)** —— 同一套代码的
 standalone 页面，模拟任务驱动庆祝；想真养在 dsh 里再往下看安装。
 
-![六个皮肤](docs/family.png)
+![九个皮肤](docs/family.png)
 
 ![层次合影](docs/assets/family-layered.png)
 

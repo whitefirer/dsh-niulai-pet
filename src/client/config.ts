@@ -53,6 +53,10 @@ export interface PetConfig {
   replyNiulai: boolean
   /** 闲置打盹（压扁变暗）开关；关掉永不进入。 */
   sleepEnabled: boolean
+  /** 随意走动（闲置游走）开关；关掉后原地活动，不走位。 */
+  walkEnabled: boolean
+  /** 离地高度 px（0-300，默认 0=贴视口底；全局共享）。 */
+  groundOffset: number
   /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小/语录按只存，行为配置全局共享）。上限 = maxPets-1。 */
   extraPets: Array<{ id: string; skin: string; size?: number; quips?: string[] }>
   /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
@@ -97,6 +101,8 @@ export interface Persisted {
   shoutLoop?: boolean
   replyNiulai?: boolean
   sleepEnabled?: boolean
+  walkEnabled?: boolean
+  groundOffset?: number
   extraPets?: Array<{ id: string; skin: string; size?: number; quips?: string[] }>
   petSize?: number
   physics?: boolean
@@ -298,7 +304,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'walkEnabled', 'groundOffset', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -361,6 +367,9 @@ export class ConfigStore {
       shoutLoop: p.shoutLoop === true,
       replyNiulai: p.replyNiulai !== false,
       sleepEnabled: p.sleepEnabled === true, // 默认不打盹（2026-08-23 起；显式开过的仍开）
+      walkEnabled: p.walkEnabled !== false, // 默认随意走动
+      groundOffset: typeof p.groundOffset === 'number' && Number.isInteger(p.groundOffset)
+        ? Math.min(300, Math.max(0, p.groundOffset)) : 0,
       physics: p.physics === true,
       hidden: p.hidden === true,
       maxPets: typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
@@ -397,6 +406,8 @@ export class ConfigStore {
       shoutLoop: r.shoutLoop === true,
       replyNiulai: r.replyNiulai !== false,
       sleepEnabled: r.sleepEnabled === true, // 默认不打盹（同 fromPersisted）
+      walkEnabled: r.walkEnabled !== false,
+      groundOffset: typeof r.groundOffset === 'number' ? r.groundOffset : undefined,
       physics: r.physics === true,
       hidden: r.hidden === true,
       maxPets: typeof r.maxPets === 'number' ? r.maxPets : undefined,
