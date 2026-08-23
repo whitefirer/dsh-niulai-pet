@@ -371,6 +371,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const cur = (): SkinDef => skin
   const skinIdle = (): string => skin.image
   const skinShout = (): string => skin.imageShout ?? skin.image
+  // 趴睡常态皮肤（赛博猫）：常态图就是专睡图，喊叫切站立图
+  const isLaydown = (): boolean => {
+    const s = cur()
+    return s.imageSleep !== undefined && s.imageSleep === s.image && s.imageShout !== undefined
+  }
 
   // ---- DOM ----
   const root = document.createElement('div')
@@ -571,6 +576,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let mouthTimers: number[] = []
   let shouting = false // 喊声播放中（含尾音保持）：sleep 压扁变暗、眨眼都要让位
   let animRolling = false // 循环喊间隙：演出帧还在滚放——眨眼/sleep 同样不许碰 img.src
+  let lingerTimer = 0 // 趴睡皮肤喊完再站一会儿的归位定时器
   const mouthOpen = (): void => {
     if (cur().imageShout === undefined) return
     img.src = mood === 'fly'
@@ -660,6 +666,20 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         if (!loopContinues) img.src = skinIdle()
         onDone?.()
       }, total))
+      return
+    }
+    if (isLaydown()) {
+      // 趴睡常态皮肤：没有「站着闭嘴」帧，嘴型开合相位会闪回趴睡图——
+      // 喊叫全程站图，声止后再站 2.5s 才趴回（拖拽/飞行/新喊叫打断 lingering）
+      mouthOpen()
+      mouthTimers.push(window.setTimeout(() => {
+        shouting = false
+        window.clearTimeout(lingerTimer)
+        lingerTimer = window.setTimeout(() => {
+          if (!destroyed && !shouting && mood !== 'fly' && mood !== 'drag') img.src = skinIdle()
+        }, 2500)
+        onDone?.()
+      }, Math.max(ms, 420)))
       return
     }
     mouthOpen()
@@ -1672,6 +1692,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       window.clearTimeout(bubbleTimer)
       window.clearTimeout(blinkTimer)
       window.clearTimeout(blinkResetTimer)
+      window.clearTimeout(lingerTimer)
       window.removeEventListener('resize', onResize)
       breathe.cancel()
       mouthIdle()

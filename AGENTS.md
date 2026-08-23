@@ -132,6 +132,9 @@ thr 0.1/score 1.5 与 wasm 构建+冒烟见
 `signature→当前皮肤签名`、`random→ACTION_POOL 现场抽`。
 **喊声是独立状态**：`shouting` 旗标（mouthShout 置位/复归）——sleep、眨眼等
 idle 行为必须查它让位（喊声不改 mood，只查 mood 会演出"边喊边趴下变暗"）。
+**趴睡常态皮肤**（`isLaydown()`：常态图==专睡图且有 shout 图，如赛博猫）喊叫
+不走「开-合-开」嘴型——没有"站着闭嘴"帧，合嘴相位会闪回趴睡图；改为全程
+站图，声止后再站 2.5s 才趴回（`lingerTimer`，拖拽/飞行/新喊叫打断）。
 
 **多只与物理**（physics.ts + pet.ts）：额外表由 index.ts 的 syncExtraPets 盯
 配置 `extraPets` 增删实例（皮肤/大小/语录按只分存——语录链=本只专属→全局

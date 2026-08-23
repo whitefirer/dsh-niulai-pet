@@ -74,7 +74,9 @@ robot.nlpack.zip
         "fly": "skins/default/fly.png",       // 可选，fly 动作图（缺省用 stand）
         "flyShout": "skins/default/fly_shout.png", // 可选，飞行中喊叫
         "spout": "skins/default/spout.png",   // 可选，breach 弧顶特效图
-        "sleep": "skins/default/sleep.png"    // 可选，打盹专睡图（配了它换图不压扁）
+        "sleep": "skins/default/sleep.png"    // 可选，打盹专睡图（配了它换图不压扁；
+                                        // 若与 stand 同图 = 趴睡常态皮肤：平时趴着，
+                                        // 喊叫才切 shout 图站起，声止再站 2.5s 趴回）
       },
       // 可选，喊叫演出。配置后喊叫不走「开-合-开」嘴型，改按时间线切帧。
       // src 可以是帧图序列，也可以是单个动画 webp（at:0 一帧到底，推荐）。
@@ -111,7 +113,7 @@ robot.nlpack.zip
 | whale 蓝鲸 | default | —（synth whale） | |
 | nailong 奶龙 | default | nailong_laugh.mp3 | shoutAnim 动画 webp |
 | dagou 大狗 | default | dagou_call.mp3 | 立绘自带 alpha（Dagou-Tap-New） |
-| cat 赛博猫 | default | cat_meow.mp3 | 有 images.sleep 趴睡图 |
+| cat 赛博猫 | default | cat_meow.mp3 | 趴睡常态（stand=sleep 同图），喊叫站立 |
 
 ## 3. 加载与校验
 

@@ -192,7 +192,8 @@ export const BUILTIN_PACKS: CharacterDef[] = [
     voice: { type: 'samples', sounds: [catMeow] },
     skins: [{
       id: 'cat', name: '赛博猫', signature: 'sway', shoutBubble: '喵——！',
-      images: { stand: catImage, sleep: catSleep },
+      // 平时趴睡（stand 用趴睡图），喊叫时才站起来（shout 用站立图）
+      images: { stand: catSleep, shout: catImage, sleep: catSleep },
       quips: ['喵', '别卷了，躺会儿'],
     }],
   },
