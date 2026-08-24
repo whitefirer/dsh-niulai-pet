@@ -37,6 +37,10 @@ export interface PetConfig {
   shoutOnDone: boolean
   /** 完成时连喊几声（1-3）。 */
   shoutCount: number
+  /** 自定义完成提示音总开关（开着且有文件时，完成提示替代角色叫声；戳/表演仍用角色叫声）。 */
+  customSoundOn: boolean
+  /** 自定义提示音（audio dataurl，≤1MB；空=未导入）。 */
+  customSound: string
   /** 气泡唠叨（默认开）。 */
   talkative: boolean
   /** 当前皮肤 id。 */
@@ -97,6 +101,8 @@ export interface Persisted {
   talkative?: boolean
   skin?: string
   shoutCount?: number
+  customSoundOn?: boolean
+  customSound?: string
   actions?: Record<string, SkinActionBinding>
   quips?: string[]
   doneDelaySec?: number
@@ -307,7 +313,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'walkEnabled', 'groundOffset', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'petHue', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'customSoundOn', 'customSound', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'walkEnabled', 'groundOffset', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'petHue', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -361,6 +367,9 @@ export class ConfigStore {
       shoutOnDone: p.shoutOnDone !== false,
       shoutCount: typeof p.shoutCount === 'number' && Number.isInteger(p.shoutCount)
         ? Math.min(99, Math.max(1, p.shoutCount)) : 1,
+      customSoundOn: p.customSoundOn === true,
+      customSound: typeof p.customSound === 'string' && p.customSound.startsWith('data:audio/') && p.customSound.length < 1_400_000
+        ? p.customSound : '',
       talkative: p.talkative !== false,
       skin: this.validSkin(p.skin),
       actions: this.sanitizeActions(p.actions),
@@ -404,6 +413,8 @@ export class ConfigStore {
       shoutOnDone: r.shoutOnDone !== false,
       talkative: r.talkative !== false,
       shoutCount: typeof r.shoutCount === 'number' ? r.shoutCount : undefined,
+      customSoundOn: r.customSoundOn === true,
+      customSound: typeof r.customSound === 'string' ? r.customSound : undefined,
       skin: typeof r.skin === 'string' ? r.skin : undefined,
       actions: isRecord(r.actions) ? r.actions as Record<string, SkinActionBinding> : undefined,
       quips: Array.isArray(r.quips) ? r.quips as string[] : undefined,

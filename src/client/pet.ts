@@ -37,6 +37,10 @@ export interface ShoutFrame {
   rock?: boolean
 }
 
+/** 全局 z 序认领计数器：挂载/抓起/置顶都取号，取过号的永远压过没取的——
+ *  抓起过的桌宠松手后仍保持在前（窗口式焦点序），不再是「后挂载恒在上」。 */
+let zCounter = 99999
+
 export interface SkinDef {
   id: string
   /** 菜单显示名。 */
@@ -381,6 +385,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let skin: SkinDef = findSkin(mySkinId(initCfg))
   let muted = initCfg.muted
   let shoutOnDone = initCfg.shoutOnDone
+  let customSoundOn = initCfg.customSoundOn
+  let customSound = initCfg.customSound
   let talkative = initCfg.talkative
   let shoutCount = initCfg.shoutCount
   let doneDelaySec = initCfg.doneDelaySec
@@ -422,6 +428,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     'z-index:99999', 'user-select:none', '-webkit-user-select:none',
     'touch-action:none', 'cursor:grab', 'filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))',
   ].join(';')
+  /** 本宠当前 z 号（认领制，见 zCounter）。 */
+  let myZ = ++zCounter
+  root.style.zIndex = String(myZ)
 
   const img = document.createElement('img')
   img.src = skinIdle()
@@ -573,6 +582,19 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       return 450
     }
     return 0
+  }
+
+  /** 完成提示音：自定义开关开着且有文件时放自定义音（仅完成路径用；戳/表演仍走 playVoice 角色叫声）。 */
+  const playNotify = (): number => {
+    if (muted || masterVolume === 0) return 0
+    if (!customSoundOn || customSound === '') return playVoice()
+    const audio = new Audio(customSound)
+    audio.volume = masterVolume / 100
+    playingAudio = audio
+    audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
+    void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
+    const d = soundDur.get(customSound)
+    return d !== undefined ? Math.round(d * 1000) + 150 : 2600
   }
 
   /**
@@ -1235,7 +1257,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       return
     }
     shoutLoopLeft--
-    const ms = playVoice()
+    const ms = playNotify()
     if (ms > 0) mouthShout(ms)
     const text = cur().shoutBubble
     showBubble(text === '' ? '！' : text, Math.max(1500, ms + 300))
@@ -1262,7 +1284,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
             playReply() // 接龙放完妈妈回一句
             return
           }
-          const ms = playVoice()
+          const ms = playNotify()
           if (ms <= 0) return
           const next = (): void => chain(n - 1)
           if (cur().imageShout === undefined) window.setTimeout(next, ms)
@@ -1367,7 +1389,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 此前无差别换站立图，演出画面没了笑声还在放（踩过）
       if (wasFlying) img.src = skinIdle()
       root.style.cursor = 'grabbing'
-      root.style.zIndex = '100000' // 拎起的压过其他桌宠，落定还原（startFall/落地分支）
+      myZ = ++zCounter // 抓起即认领置顶（松手后保持，不再落回挂载序）
+      root.style.zIndex = String(myZ)
     }
     if (dragging) {
       // root 变换是 translateX 叠 scaleX：屏幕位移与 x 恒 1:1，与朝向无关
@@ -1472,7 +1495,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       liftY = 0
       mood = 'idle'
       img.style.transform = ''
-      root.style.zIndex = '99999'
       root.style.transform = `translateX(${x}px) scaleX(${facing})`
       saveMyX(x)
       landSquash(dropH)
@@ -1494,7 +1516,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       } else {
         mood = 'idle'
         liftY = 0 // 微抬直接放：归零，否则后续 applyX 会把残留的几 px 悬浮量写回去
-        root.style.zIndex = '99999'
         root.style.transform = `translateX(${x}px) scaleX(${facing})`
         saveMyX(x)
         // 落地回弹
@@ -1691,6 +1712,15 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     doneDelaySec = c.doneDelaySec
     shoutLoopOn = c.shoutLoop
     replyOn = c.replyNiulai
+    customSoundOn = c.customSoundOn
+    if (c.customSound !== customSound && c.customSound !== '') {
+      // 自定义提示音换文件：预读元数据拿真实时长（气泡/嘴型撑满全长用）
+      const probe = new Audio()
+      probe.preload = 'metadata'
+      probe.addEventListener('loadedmetadata', () => { soundDur.set(c.customSound, probe.duration) })
+      probe.src = c.customSound
+    }
+    customSound = c.customSound
     sleepOn = c.sleepEnabled
     if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
     walkOn = c.walkEnabled
@@ -1785,7 +1815,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     /** 摆位（全家福列队重排用；展示性挂载不写位置记忆，主宠等常规模糊落盘——收起合影要能回原位）。 */
     place(v: number) { x = v; clampX(); applyX(); if (!demoDoll) saveMyX(x) },
     setPinned(on: boolean) { pinned = on },
-    setTopmost(on: boolean) { root.style.zIndex = on ? '100001' : '99999' },
+    setTopmost(on: boolean) { root.style.zIndex = on ? String(++zCounter) : String(myZ) },
     setVisible(v: boolean) { root.style.visibility = v ? '' : 'hidden' },
     setBusy(busy) {
       busyInfo = busy

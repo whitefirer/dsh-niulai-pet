@@ -94,6 +94,10 @@ export const Config = z.object({
   shoutOnDone: z.boolean().default(true),
   /** 完成时连喊几声（1-99 自定，默认 1；循环模式下此键无意义）。 */
   shoutCount: z.number().step(1).min(1).max(99).default(1),
+  /** 自定义完成提示音总开关（开着且有文件时，完成提示替代角色叫声）。 */
+  customSoundOn: z.boolean().default(false),
+  /** 自定义提示音（audio dataurl，≤1MB；空=未导入）。 */
+  customSound: z.string().max(1_400_000).default(''),
   /** 气泡唠叨（默认开）。 */
   talkative: z.boolean().default(true),
   /** 当前皮肤（自定义角色包皮肤为 `角色id/皮肤id`，见 SKIN_IDS 注释）。 */

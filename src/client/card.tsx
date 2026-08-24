@@ -33,10 +33,18 @@ const zh = {
   description: '右下角桌宠的叫声、气泡唠叨与动作绑定',
   sound: '声音',
   volume: '音量',
-  shoutOnDone: '完成时喊',
-  shoutCount: '完成连喊',
+  shoutOnDone: '完成时提示',
+  shoutCount: '连播次数',
   doneDelay: '完成延迟（秒）',
-  shoutLoop: '循环喊到互动停止',
+  shoutLoop: '循环提示到互动停止',
+  customSound: '自定义提示音',
+  customSoundHint: '支持 mp3 / wav / ogg（m4a / flac 部分浏览器可用），≤1MB；只接管完成提示，戳/表演仍用角色叫声',
+  customSoundImport: '导入音频',
+  customSoundTest: '试听',
+  customSoundClear: '清除',
+  customSoundTooBig: '文件超过 1MB，换个小点的',
+  tabPet: '这只桌宠',
+  tabGlobal: '通用',
   sleepEnabled: '闲置打盹（变灰变矮）',
   walkEnabled: '随意走动（闲置游走）',
   groundOffset: '离地高度（px）',
@@ -132,10 +140,18 @@ const en: Record<keyof typeof zh, string> = {
   description: 'Voice, chatter bubbles, and per-skin action bindings of the corner pet',
   sound: 'Sound',
   volume: 'Volume',
-  shoutOnDone: 'Shout on task done',
-  shoutCount: 'Shout repeats',
+  shoutOnDone: 'Notify on task done',
+  shoutCount: 'Notify repeats',
   doneDelay: 'Done delay (s)',
-  shoutLoop: 'Loop shout until touched',
+  shoutLoop: 'Loop notify until touched',
+  customSound: 'Custom notify sound',
+  customSoundHint: 'mp3 / wav / ogg supported (m4a / flac on some browsers), ≤1MB; only replaces the done-notify, poke/perform still use the character voice',
+  customSoundImport: 'Import audio',
+  customSoundTest: 'Play',
+  customSoundClear: 'Clear',
+  customSoundTooBig: 'File exceeds 1MB',
+  tabPet: 'This pet',
+  tabGlobal: 'General',
   sleepEnabled: 'Idle nap (dims & squashes)',
   walkEnabled: 'Wander (idle walk)',
   groundOffset: 'Ground height (px)',
@@ -267,6 +283,8 @@ export interface NiulaiCardProps {
   highlight?: { emit(petId: string): void }
   /** 悬浮设置面板形态：初始展开（设置页卡片默认收起）。 */
   defaultOpen?: boolean
+  /** 初始配置对象（右键菜单从哪只桌宠开来就选哪只；缺省 main）。 */
+  initialPet?: string
 }
 
 /** 卡片状态源：合并 ConfigStore（生效配置）与 scope（ready/writable）为一个 observable。 */
@@ -537,6 +555,60 @@ function HueField(props: { value: number; disabled: boolean; label: string; onCo
         onBlur={commit}
       />
       <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 34, textAlign: 'right' }}>{draft}°</span>
+    </span>
+  )
+}
+
+/** 自定义提示音：导入（≤1MB audio/*）/ 试听 / 清除。 */
+function CustomSoundField(props: {
+  value: string
+  disabled: boolean
+  labels: { import: string; test: string; clear: string; tooBig: string }
+  onSet(v: string): void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [err, setErr] = useState('')
+  const btnStyle = {
+    font: 'inherit', fontSize: 12, padding: '3px 10px', borderRadius: 7,
+    border: `1px solid ${colors.border}`, background: 'none',
+    color: colors.labelPrimary, cursor: props.disabled ? 'default' : 'pointer',
+    opacity: props.disabled ? 0.4 : 1,
+  } as const
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f === undefined) return
+          if (f.size > 1024 * 1024) { setErr(props.labels.tooBig); return }
+          setErr('')
+          const rd = new FileReader()
+          rd.onload = () => { if (typeof rd.result === 'string') props.onSet(rd.result) }
+          rd.readAsDataURL(f)
+        }}
+      />
+      <button type="button" style={btnStyle} disabled={props.disabled} onClick={() => { inputRef.current?.click() }}>
+        {props.labels.import}
+      </button>
+      {props.value !== ''
+        ? (
+          <>
+            <button type="button" style={btnStyle} disabled={props.disabled}
+              onClick={() => { void new Audio(props.value).play().catch(() => {}) }}>
+              {props.labels.test}
+            </button>
+            <button type="button" style={btnStyle} disabled={props.disabled} onClick={() => { props.onSet('') }}>
+              {props.labels.clear}
+            </button>
+          </>
+        )
+        : null}
+      {err !== '' ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-state-danger-primary, #ef4444)' }}>{err}</span> : null}
     </span>
   )
 }
@@ -1010,7 +1082,8 @@ export function NiulaiCard(props: NiulaiCardProps) {
   // 语音开关的失败原因分态：denied=授权被拒/iframe 策略；no-mic=无设备（NotFoundError）
   const [voiceIssue, setVoiceIssue] = useState<'denied' | 'no-mic' | null>(null)
   // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
-  const [petSel, setPetSel] = useState('main')
+  const [petSel, setPetSel] = useState(props.initialPet ?? 'main')
+  const [tab, setTab] = useState<'pet' | 'global'>('pet')
   const { t } = props
   const state = props.useNiulaiPet((s) => s)
   if (!state.ready) return null
@@ -1114,6 +1187,28 @@ export function NiulaiCard(props: NiulaiCardProps) {
         ? (
           <div style={{ borderTop: `1px solid ${colors.border}`, margin: '0 16px', padding: '4px 0 12px' }}>
             {!writable ? <p role="status" style={{ margin: '12px 0 0', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('readOnly')}</p> : null}
+            <div style={{ display: 'flex', gap: 6, margin: '10px 0 2px' }}>
+              {(['pet', 'global'] as const).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => { setTab(id) }}
+                  style={{
+                    font: 'inherit', fontSize: 13, padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+                    // 不用 brand 填充：dsh 的 brand 变量是浅色，白字压上去直接隐形（踩过）
+                    border: `1px solid ${tab === id ? 'var(--dsw-alias-brand-primary, #3b82f6)' : colors.border}`,
+                    background: 'none',
+                    fontWeight: tab === id ? 600 : 400,
+                    color: tab === id ? 'var(--dsw-alias-brand-primary, #3b82f6)' : colors.labelPrimary,
+                  }}
+                >
+                  {t(id === 'pet' ? 'tabPet' : 'tabGlobal')}
+                </button>
+              ))}
+            </div>
+            {tab === 'global'
+              ? (
+                <>
             <Row label={t('sound')}>
               <Switch on={!cfg.muted} disabled={disabled} label={t('sound')} onChange={(on) => { props.set({ muted: !on }) }} />
             </Row>
@@ -1126,6 +1221,21 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('shoutCount')}>
               <NumberField value={cfg.shoutCount} min={1} max={99} disabled={disabled} label={t('shoutCount')} onCommit={(n) => { props.set({ shoutCount: n }) }} />
             </Row>
+            <Row label={t('customSound')}>
+              <Switch on={cfg.customSoundOn} disabled={disabled} label={t('customSound')} onChange={(on) => { props.set({ customSoundOn: on }) }} />
+            </Row>
+            {cfg.customSoundOn
+              ? (
+                <>
+                  <Row label="　">
+                    <CustomSoundField value={cfg.customSound} disabled={disabled}
+                      labels={{ import: t('customSoundImport'), test: t('customSoundTest'), clear: t('customSoundClear'), tooBig: t('customSoundTooBig') }}
+                      onSet={(v) => { props.set({ customSound: v }) }} />
+                  </Row>
+                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('customSoundHint')}</div>
+                </>
+              )
+              : null}
             <Row label={t('doneDelay')}>
               <NumberField value={cfg.doneDelaySec} min={0} max={120} disabled={disabled} label={t('doneDelay')}
                 onCommit={(n) => { props.set({ doneDelaySec: n }) }} />
@@ -1241,6 +1351,13 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('hideAll')}>
               <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
             </Row>
+            {packs !== undefined ? <PackManager packs={packs} disabled={disabled} t={t} /> : null}
+                </>
+              )
+              : null}
+            {tab === 'pet'
+              ? (
+                <>
             <div style={{ padding: '9px 0' }}>
               <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>
                 {petList.length > 1 ? `${t('quips')} · ${targetSkinName}` : t('quips')}
@@ -1355,7 +1472,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
-            {packs !== undefined ? <PackManager packs={packs} disabled={disabled} t={t} /> : null}
+                </>
+              )
+              : null}
           </div>
         )
         : null}
@@ -1405,6 +1524,7 @@ export function mountCardPanel(
   voiceDebug?: VoiceDebugBus,
   packs?: PacksFace,
   highlight?: HighlightBus,
+  initialPet?: string,
 ): () => void {
   const fakeScope: SettingsScopeLike = {
     getSnapshot: () => ({ status: 'ready', writable: true }),
@@ -1432,6 +1552,7 @@ export function mountCardPanel(
       packs={face.packs}
       highlight={face.highlight}
       defaultOpen
+      initialPet={initialPet}
     />,
   )
   return () => {

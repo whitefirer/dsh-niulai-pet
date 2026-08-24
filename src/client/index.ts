@@ -142,7 +142,7 @@ export function apply(ctx: ClientCtx): void {
       panelEl = null
       document.removeEventListener('pointerdown', onDocDown, true)
     }
-    const openSettingsPanel = (anchor: () => { x: number; y: number; w: number }): void => {
+    const openSettingsPanel = (anchor: () => { x: number; y: number; w: number }, petId?: string): void => {
       if (panelEl !== null) { closePanel(); return } // 再点一次 = 收起
       const b = anchor()
       const w = Math.min(360, window.innerWidth - 16)
@@ -151,11 +151,23 @@ export function apply(ctx: ClientCtx): void {
       panelEl = document.createElement('div')
       panelEl.style.cssText = [
         `position:fixed;left:${left}px;bottom:${bottom}px;width:${w}px`,
-        'max-height:70vh;overflow:auto;z-index:100002;border-radius:12px;padding:8px',
+        'max-height:70vh;overflow:auto;z-index:10000002;border-radius:12px;padding:8px',
         'background:#18181b;border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 40px rgba(0,0,0,.5)',
       ].join(';')
+      const closeBtn = document.createElement('button')
+      closeBtn.textContent = '✕'
+      closeBtn.title = '关闭'
+      closeBtn.style.cssText = [
+        'position:sticky;top:0;float:right;z-index:1;width:26px;height:26px;border-radius:7px',
+        'border:1px solid rgba(255,255,255,.14);background:#27272a;color:#a1a1aa;cursor:pointer;font-size:13px;line-height:1',
+      ].join(';')
+      closeBtn.onclick = () => { closePanel() }
+      panelEl.appendChild(closeBtn)
+      // 卡片渲进独立子容器——createRoot 会接管并清空容器，closeBtn 必须当它的兄弟（踩过）
+      const cardSlot = document.createElement('div')
+      panelEl.appendChild(cardSlot)
       document.body.appendChild(panelEl)
-      panelCleanup = mountCardPanel(panelEl, store, voiceDebug, registry, highlight)
+      panelCleanup = mountCardPanel(cardSlot, store, voiceDebug, registry, highlight, petId ?? 'main')
       document.addEventListener('pointerdown', onDocDown, true)
     }
     const mkAssets = (petId?: string, defaultX?: number): Parameters<typeof mountPet>[0] => ({
@@ -171,7 +183,7 @@ export function apply(ctx: ClientCtx): void {
       // 设置面板所有只都有（闭包延迟引用句柄；全家福展示宠查不到句柄就不弹）
       onOpenSettings: () => {
         const h = petId === undefined ? pet : extraPets.get(petId)
-        if (h !== undefined) openSettingsPanel(() => h.bounds())
+        if (h !== undefined) openSettingsPanel(() => h.bounds(), petId)
       },
     })
     const pet = mountPet(mkAssets(), store, voiceDebug)

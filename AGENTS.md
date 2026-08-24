@@ -248,3 +248,8 @@ assets/ 与 lib/ 均入库。
   关于；低频配置全归设置面板。滑杆行拖动只预览（直接改 petHue+applyImgFilter），
   change 或菜单关闭（closeMenu→commitHuePreview）才落盘 ConfigStore——拖动中
   写 store 会触发菜单就地重建、input 被销毁断拖。
+- **悬浮设置面板两个坑**：① createRoot 会接管并清空容器——面板外壳的 ✕ 按钮
+  必须和 React 挂载点做兄弟节点，不能先塞进同一容器（按钮被吞过）；② tab 激活态
+  别用 dsw brand 变量做填充底——dsh 的 brand 是浅色，白字压上直接隐形，改描边+
+  文字着色。z 序是全局认领制（zCounter 取号，抓起永久置顶），面板 z 用
+  10000002 永远压桌宠。
