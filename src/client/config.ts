@@ -61,14 +61,16 @@ export interface PetConfig {
   walkEnabled: boolean
   /** 离地高度 px（0-300，默认 0=贴视口底；全局共享）。 */
   groundOffset: number
-  /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小/色相/语录按只存，行为配置全局共享）。上限 = maxPets-1。 */
-  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; opacity?: number; quips?: string[] }>
+  /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小/色相/流光/语录按只存，行为配置全局共享）。上限 = maxPets-1。 */
+  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }>
   /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
   petSize: number
   /** 色相旋转角度（0-360，默认 0=原色；主宠）。 */
   petHue: number
   /** 不透明度 %（20-100，默认 100；主宠）。 */
   petOpacity: number
+  /** 流光变色（缓慢循环色相，默认关；petHue 作基底色）。 */
+  petHueCycle: boolean
   /** 物理碰撞开关（多只时互相挤/弹飞）。 */
   physics: boolean
   /** 隐藏全部桌宠（默认关；打开后所有实例隐没，从设置卡片喊回来）。 */
@@ -113,10 +115,11 @@ export interface Persisted {
   sleepEnabled?: boolean
   walkEnabled?: boolean
   groundOffset?: number
-  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; opacity?: number; quips?: string[] }>
+  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }>
   petSize?: number
   petHue?: number
   petOpacity?: number
+  petHueCycle?: boolean
   physics?: boolean
   hidden?: boolean
   maxPets?: number
@@ -395,6 +398,7 @@ export class ConfigStore {
         ? Math.min(360, Math.max(0, p.petHue)) : 0,
       petOpacity: typeof p.petOpacity === 'number' && Number.isInteger(p.petOpacity)
         ? Math.min(100, Math.max(20, p.petOpacity)) : 100,
+      petHueCycle: p.petHueCycle === true,
       extraPets: this.sanitizeExtraPets(p.extraPets, (typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
         ? Math.min(15, Math.max(1, p.maxPets)) : 10) - 1),
       voiceControl: p.voiceControl === true,
@@ -435,6 +439,7 @@ export class ConfigStore {
       petSize: typeof r.petSize === 'number' ? r.petSize : undefined,
       petHue: typeof r.petHue === 'number' ? r.petHue : undefined,
       petOpacity: typeof r.petOpacity === 'number' ? r.petOpacity : undefined,
+      petHueCycle: r.petHueCycle === true,
       extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }> : undefined,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
@@ -457,9 +462,9 @@ export class ConfigStore {
   }
 
   /** 额外表清洗：id/皮肤形状 + 皮肤白名单 + 去重 + 上限 cap 只。 */
-  private sanitizeExtraPets(input: unknown, cap = 2): Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }> {
+  private sanitizeExtraPets(input: unknown, cap = 2): Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }> {
     if (!Array.isArray(input)) return []
-    const out: Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }> = []
+    const out: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }> = []
     const seen = new Set<string>()
     for (const p of input) {
       if (!isRecord(p) || typeof p.id !== 'string' || p.id === '' || seen.has(p.id)) continue
@@ -470,6 +475,7 @@ export class ConfigStore {
         skin: this.validSkin(typeof p.skin === 'string' ? p.skin : undefined),
         ...(typeof p.size === 'number' && Number.isInteger(p.size) && p.size >= 72 && p.size <= 200 ? { size: p.size } : {}),
         ...(typeof p.hue === 'number' && Number.isInteger(p.hue) && p.hue >= 0 && p.hue <= 360 ? { hue: p.hue } : {}),
+        ...(p.hueCycle === true ? { hueCycle: true } : {}),
         ...(typeof p.opacity === 'number' && Number.isInteger(p.opacity) && p.opacity >= 20 && p.opacity <= 100 ? { opacity: p.opacity } : {}),
         ...(quips.length > 0 ? { quips } : {}),
       })

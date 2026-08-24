@@ -99,6 +99,7 @@ const zh = {
   petSize: '桌宠大小',
   petSizeReset: '重置',
   petHue: '色相',
+  petHueCycle: '流光变色',
   petOpacity: '不透明度',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
@@ -209,6 +210,7 @@ const en: Record<keyof typeof zh, string> = {
   petSize: 'Pet size',
   petSizeReset: 'Reset',
   petHue: 'Hue',
+  petHueCycle: 'Color cycle',
   petOpacity: 'Opacity',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
@@ -1163,7 +1165,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packSnap.skins.find((s) => s.id === skinId)?.defaultOpacity ?? 100
   const skinDefHue = (skinId: string): number =>
     packSnap.skins.find((s) => s.id === skinId)?.defaultHue ?? 0
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, hueCycle: cfg.petHueCycle, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), hueCycle: p.hueCycle ?? false, opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
   /** 当前对象皮肤的默认大小/不透明度/色相（重置按钮目标值）。 */
@@ -1189,6 +1191,10 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const setTargetHue = (v: number): void => {
     if (target.id === 'main') props.set({ petHue: v })
     else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, hue: v } : p) })
+  }
+  const setTargetHueCycle = (on: boolean): void => {
+    if (target.id === 'main') props.set({ petHueCycle: on })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, hueCycle: on } : p) })
   }
   const setTargetOpacity = (v: number): void => {
     if (target.id === 'main') props.set({ petOpacity: v })
@@ -1493,6 +1499,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
                   )
                   : null}
               </span>
+            </Row>
+            <Row label={petList.length > 1 ? `${t('petHueCycle')} · ${targetSkinName}` : t('petHueCycle')}>
+              <Switch on={target.hueCycle} disabled={disabled} label={t('petHueCycle')} onChange={setTargetHueCycle} />
             </Row>
             <Row label={petList.length > 1 ? `${t('petOpacity')} · ${targetSkinName}` : t('petOpacity')}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

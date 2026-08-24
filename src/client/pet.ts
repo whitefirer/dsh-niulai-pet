@@ -355,6 +355,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       ? c.petHue
       : (c.extraPets.find((p) => p.id === petId)?.hue
           ?? skins.find((s) => s.id === mySkinId(c))?.defaultHue ?? 0)
+  /** 本宠流光变色开关：主宠读 petHueCycle；额外表读各自条目（缺省 false）。 */
+  const myHueCycle = (c: PetConfig): boolean =>
+    petId === 'main' ? c.petHueCycle : (c.extraPets.find((p) => p.id === petId)?.hueCycle ?? false)
   /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省回皮肤包声明的默认，再缺省 100）。 */
   const myOpacity = (c: PetConfig): number =>
     petId === 'main'
@@ -409,6 +412,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let petH = mySize(initCfg)
   let petHue = myHue(initCfg)
   let petOpacity = myOpacity(initCfg)
+  /** 流光变色：开关镜像 + 相位（配置色相作基底色，相位在其上滚动；纯显示不落盘）。 */
+  let hueCycleOn = myHueCycle(initCfg)
+  let cyclePhase = 0
   /** 睡眠压暗态（applyImgFilter 合成用）。 */
   let dimmed = false
   let skin: SkinDef = findSkin(mySkinId(initCfg))
@@ -465,15 +471,22 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
-  /** 合成 img 滤镜：色相旋转 + 不透明度 + 睡眠压暗（sleepFor/wakeFromSleep 与 syncConfig 共用）。 */
+  /** 合成 img 滤镜：色相旋转（流光开时 = 基底色 + 滚动相位）+ 不透明度 + 睡眠压暗。 */
   const applyImgFilter = (): void => {
     const parts: string[] = []
-    if (petHue !== 0) parts.push(`hue-rotate(${petHue}deg)`)
+    const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
+    if (effHue !== 0) parts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) parts.push(`opacity(${petOpacity}%)`)
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
   }
   applyImgFilter()
+  // 流光相位推进：90ms 一拍 1.5°，~21.6s 一圈；关着时纯空转（成本可忽略），destroy 统一清
+  const cycleTimer = window.setInterval(() => {
+    if (destroyed || !hueCycleOn) return
+    cyclePhase = (cyclePhase + 1.5) % 360
+    applyImgFilter()
+  }, 90)
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
@@ -952,7 +965,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const miniH = Math.max(36, Math.round(petH / Math.sqrt(n)))
     // 克隆滤镜与主宠镜像一致（变色/透明度；睡眠压暗分裂前已唤醒不叠）+ 自己的小投影
     const cloneFilterParts: string[] = []
-    if (petHue !== 0) cloneFilterParts.push(`hue-rotate(${petHue}deg)`)
+    const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
+    if (effHue !== 0) cloneFilterParts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) cloneFilterParts.push(`opacity(${petOpacity}%)`)
     cloneFilterParts.push('drop-shadow(0 2px 3px rgba(0,0,0,.3))')
     const cloneFilter = cloneFilterParts.join(' ')
@@ -1910,6 +1924,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       petOpacity = newOpacity
       applyImgFilter()
     }
+    const newCycle = myHueCycle(c)
+    if (newCycle !== hueCycleOn) {
+      hueCycleOn = newCycle
+      applyImgFilter() // 开关切换立即反映（关掉即回基底色）
+    }
   }
   const unsubConfig = config.subscribe(() => {
     if (destroyed) return
@@ -1995,6 +2014,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       window.clearTimeout(behaveTimer)
       window.clearTimeout(chatterTimer)
       window.clearTimeout(shoutLoopTimer)
+      window.clearInterval(cycleTimer)
       window.clearTimeout(bubbleTimer)
       window.clearTimeout(blinkTimer)
       window.clearTimeout(blinkResetTimer)
