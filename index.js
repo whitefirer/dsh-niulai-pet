@@ -73,7 +73,7 @@ export const NIULAI_PET_NS = settingsNamespace('niulai-pet')
  * 被昨天启动的宿主 schema 拒写，3s 乐观层过期回退连跳）。
  * 合法性由 client 半 pet.ts 的 ACTION_ORDER/asAction 围栏（未知动作回落默认），
  * 这样老宿主永远接受未来的新动作：插件升级 = 刷新页面即可。
- * 动作全集备查：signature / fly / dance / spin / hops / roll / breach / sway / split / random
+ * 动作全集备查：signature / fly / dance / spin / hops / roll / breach / sway / split / drive / random
  */
 const Action = z.string()
 

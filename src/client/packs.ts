@@ -15,7 +15,7 @@
  */
 
 import { unzipSync } from 'fflate'
-import type { ActionName, ShoutFrame, SkinDef } from './pet.js'
+import type { ActionName, ShoutFrame, SkinDef, VoiceName } from './pet.js'
 
 // ---- 内置角色素材（assets/ 已按 角色/skins/皮肤 分目录）----
 import petImage from '../../assets/niulai/skins/default/pet.png'
@@ -70,7 +70,7 @@ import xnShout from '../../assets/xiaonailong/xiaonailong.mp3'
 /** 角色声音策略：samples=自带音频（自定义包唯一路线）；synth=内置合成音色。 */
 export type PackVoice =
   | { type: 'samples'; sounds: string[]; reply?: string }
-  | { type: 'synth'; preset: 'moo' | 'squeak' | 'whale' | 'meow' }
+  | { type: 'synth'; preset: 'moo' | 'squeak' | 'whale' | 'meow' | 'crackle' | 'engine' | 'motor' | 'siren' }
 
 /** 角色内一个皮肤（外观变体）。 */
 export interface PackSkinDef {
@@ -99,6 +99,16 @@ export interface PackSkinDef {
   defaultOpacity?: number
   /** 默认色相旋转 °（0-360；选用该皮肤时色相落到它，用户另行调整优先；缺省 0=原色）。 */
   defaultHue?: number
+  /** 默认流光变色开关（选用该皮肤时自动开，用户另行调整优先；缺省关）。 */
+  defaultHueCycle?: boolean
+  /** 分裂克隆数（2-6；仅 split 动作，覆盖随机 2-3，如史莱姆王）。 */
+  splitCount?: number
+  /** drive 演出风格（normal/wheelie/wiggle/random）。 */
+  driveStyle?: 'normal' | 'wheelie' | 'wiggle' | 'random'
+  /** 完成路径专属合成音色（如 siren 警笛）。 */
+  doneVoice?: VoiceName
+  /** 完成路径专属采样（mp3 dataurl）。 */
+  doneSounds?: string[]
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -243,6 +253,11 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     defaultSize: skin.defaultSize ?? 120,
     ...(skin.defaultOpacity !== undefined ? { defaultOpacity: skin.defaultOpacity } : {}),
     ...(skin.defaultHue !== undefined ? { defaultHue: skin.defaultHue } : {}),
+    ...(skin.defaultHueCycle === true ? { defaultHueCycle: true } : {}),
+    ...(skin.splitCount !== undefined ? { splitCount: skin.splitCount } : {}),
+    ...(skin.driveStyle !== undefined ? { driveStyle: skin.driveStyle } : {}),
+    ...(skin.doneVoice !== undefined ? { doneVoice: skin.doneVoice } : {}),
+    ...((skin.doneSounds?.length ?? 0) > 0 ? { doneSounds: skin.doneSounds } : {}),
     ...(skin.jelly === true ? { jelly: true } : {}),
   }
 }
@@ -272,7 +287,7 @@ export class PackParseError extends Error {
   }
 }
 
-const ACTIONS: readonly string[] = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'random']
+const ACTIONS: readonly string[] = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'drive', 'random']
 const ID_RE = /^[a-z0-9-]{2,32}$/
 const SKIN_ID_RE = /^[a-z0-9-]{1,32}$/
 const IMG_EXT = /\.(png|webp)$/
@@ -400,8 +415,10 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
     voice = { type: 'samples', sounds, ...(reply !== undefined ? { reply } : {}) }
   } else if (vraw.type === 'synth') {
     const preset = vraw.preset
-    if (preset === 'moo' || preset === 'squeak' || preset === 'whale' || preset === 'meow') voice = { type: 'synth', preset }
-    else errors.push(`voice.preset: 只支持内置音色 moo/squeak/whale/meow，收到 ${JSON.stringify(preset)}`)
+    if (preset === 'moo' || preset === 'squeak' || preset === 'whale' || preset === 'meow'
+      || preset === 'crackle' || preset === 'engine' || preset === 'motor' || preset === 'siren') {
+      voice = { type: 'synth', preset }
+    } else errors.push(`voice.preset: 只支持内置音色 moo/squeak/whale/meow/crackle/engine/motor/siren，收到 ${JSON.stringify(preset)}`)
   } else {
     errors.push(`voice.type: 只支持 samples / synth，收到 ${JSON.stringify(vraw.type)}`)
   }
@@ -499,6 +516,30 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         }
       }
       const squips = parseQuips(s.quips, `${at}.quips`, errors)
+      // drive 演出风格 / 完成专属声（doneVoice 合成音色 / doneSounds 采样路径）
+      let driveStyle: 'normal' | 'wheelie' | 'wiggle' | 'random' | undefined
+      if (s.driveStyle !== undefined) {
+        if (s.driveStyle === 'normal' || s.driveStyle === 'wheelie' || s.driveStyle === 'wiggle' || s.driveStyle === 'random') {
+          driveStyle = s.driveStyle
+        } else errors.push(`${at}.driveStyle: 只支持 normal/wheelie/wiggle/random，收到 ${JSON.stringify(s.driveStyle)}`)
+      }
+      let doneVoice: VoiceName | undefined
+      if (s.doneVoice !== undefined) {
+        if (typeof s.doneVoice === 'string' && ['moo', 'squeak', 'whale', 'meow', 'crackle', 'engine', 'motor', 'siren'].includes(s.doneVoice)) {
+          doneVoice = s.doneVoice as VoiceName
+        } else errors.push(`${at}.doneVoice: 只支持内置合成音色，收到 ${JSON.stringify(s.doneVoice)}`)
+      }
+      const doneSounds: string[] = []
+      if (s.doneSounds !== undefined) {
+        if (!Array.isArray(s.doneSounds)) errors.push(`${at}.doneSounds: 必须是 mp3 路径数组`)
+        else {
+          (s.doneSounds as unknown[]).forEach((p, i) => {
+            const d = typeof p === 'string' ? asset(`${at}.doneSounds.${i}`, SND_EXT) : undefined
+            if (typeof p === 'string' && d !== undefined) doneSounds.push(d)
+            else if (typeof p !== 'string') errors.push(`${at}.doneSounds.${i}: 必须是字符串路径`)
+          })
+        }
+      }
       const shoutBubble = typeof s.shoutBubble === 'string' ? s.shoutBubble : undefined
       let defaultSize: number | undefined
       if (s.size !== undefined) {
@@ -518,6 +559,13 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         if (Number.isInteger(n) && n >= 0 && n <= 360) defaultHue = n
         else errors.push(`${at}.hue: 必须 0~360 的整数，收到 ${JSON.stringify(s.hue)}`)
       }
+      const defaultHueCycle = s.hueCycle === true
+      let splitCount: number | undefined
+      if (s.splitCount !== undefined) {
+        const n = typeof s.splitCount === 'number' ? s.splitCount : NaN
+        if (Number.isInteger(n) && n >= 2 && n <= 6) splitCount = n
+        else errors.push(`${at}.splitCount: 必须 2~6 的整数，收到 ${JSON.stringify(s.splitCount)}`)
+      }
       const jelly = s.jelly === true
 
       if (standOk) {
@@ -533,6 +581,11 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(defaultSize !== undefined ? { defaultSize } : {}),
           ...(defaultOpacity !== undefined ? { defaultOpacity } : {}),
           ...(defaultHue !== undefined ? { defaultHue } : {}),
+          ...(defaultHueCycle ? { defaultHueCycle: true } : {}),
+          ...(splitCount !== undefined ? { splitCount } : {}),
+          ...(driveStyle !== undefined ? { driveStyle } : {}),
+          ...(doneVoice !== undefined ? { doneVoice } : {}),
+          ...(doneSounds.length > 0 ? { doneSounds } : {}),
           ...(jelly ? { jelly: true } : {}),
         })
       }

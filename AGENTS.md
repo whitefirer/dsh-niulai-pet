@@ -73,7 +73,9 @@ src/client/highlight.ts 预览图高亮总线（card 点预览图 → 对应 pet
 ```
 
 **SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, shoutAnim?, imageFly?,
-imageFlyShout?, imageSpout?, imageSleep?, voice, sounds?, signature, shoutBubble, quips?, defaultSize? }`。
+imageFlyShout?, imageSpout?, imageSleep?, voice, sounds?, signature, shoutBubble, quips?,
+defaultSize?, defaultOpacity?, defaultHue?, defaultHueCycle?, splitCount?, driveStyle?,
+doneVoice?, doneSounds?, jelly? }`。
 PetHandle 公开面：`celebrate/poke/fly/setBusy/setMuted/isMuted/destroy`
 + `bounds()`（位姿 x/y/w）、`place(x)`（摆位，非展示挂载落盘）、`setVisible()`
 （先隐挂载防闪）、`setPinned()`（钉住不游走）、`setTopmost()`（置顶压层）；
@@ -185,6 +187,22 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 **开场压扁动画绝不能加 `fill:'forwards'`**——WAAPI 前向填充永久压内联样式，
 没人取消会把主图钉死在趴扁态，之后的走路/跳跃动画只是暂时盖过它，
 停下又趴回去（用户报「一会正常一会趴着」翻出来的，铁律#1 的翻版）。
+分裂数可被皮肤 `splitCount`（2-6）覆盖（史莱姆王 5 只）。
+
+**动作 `drive`（开过去）**：车系签名，地面横穿——引擎声（voice）起哮，
+加速冲出本侧屏幕 → 从另一侧杀回 → 减速滑回原位（~3.6s，方向随机）。
+演出风格走皮肤 `driveStyle`（wheelie=全程抬前轮 / wiggle=摇头晃脑 / random 每次抽）；
+镜像父级内 rotate 同样不乘 dir（动车类继承铁律#2）。随机池剔除 drive
+（牛来随机抽到开车很出戏）；wheelie 前轮抬统一 rotate(-24deg)。
+
+**完成庆祝三件套**：`fireCelebrate` 现在必发**完成光环**（金色光圈浮现头顶，
+3.6s，通用皮肤无关；气泡 bottom 已抬到 103%+30px 给光环让位——同一位置
+气泡会在层级上盖掉环，踩过）；
+完成叫声走 `playNotify` 优先级：自定义提示音 → 皮肤 `doneVoice`（合成预设，
+警车 'siren'）→ 皮肤 `doneSounds`（采样，todo）→ 普通叫声；
+shoutAnim 皮肤的「帧演出即本体」让位逻辑在 `animAllows`——**先解析
+signature 占位符再判**（否则皮名下的 split 被吞，火史莱姆戳=喷火+分裂
+就是翻这坑），split 例外放行（分裂自身就是完整演出）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
@@ -221,7 +239,7 @@ playwright 每次开**全新临时浏览器**：角色包存 IndexedDB，临时�
   mp3 metadata（soundDur map），不是写死的。
 - 飞行中喊叫用 `imageFlyShout`（飞行张嘴帧）；没有张嘴图的皮肤跳过嘴型。
 - 连喊（shoutCount 1-3）：chain 递归，一声放完接下声（mouthShout 的 onDone）。
-- 合成叫声（moo/whale/squeak/meow）是 WebAudio 实时合成，参数在 pet.ts 顶部
+- 合成叫声（moo/whale/squeak/meow/crackle/engine/motor/siren）是 WebAudio 实时合成，参数在 pet.ts 顶部
   `synth*` 函数；AudioContext 在首次 pointerdown 暖场（自动播放策略）。
 
 ## 素材管线（tools/）

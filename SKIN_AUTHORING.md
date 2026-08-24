@@ -60,7 +60,7 @@ my-pet.nlpack.zip          # 普通 zip，建议后缀 .nlpack.zip
 - `{ "type": "samples", "samples": ["a.mp3", "b.mp3"], "reply": "r.mp3" }`
   - `samples`：完成/喊叫音，≥1 个，多个随机播放
   - `reply`：可选，语音停喊成功后的回应音
-- `{ "type": "synth", "preset": "moo" }`：内置合成音色，仅限 `moo`/`squeak`/`whale`
+- `{ "type": "synth", "preset": "moo" }`：内置合成音色，可选 `moo`/`squeak`/`whale`/`meow`/`crackle`（火焰噼啪）/`engine`（警车引擎）/`motor`（摩托高转）/`siren`（警笛）
 
 ### skins[] 每项
 
@@ -82,11 +82,16 @@ my-pet.nlpack.zip          # 普通 zip，建议后缀 .nlpack.zip
 | `size` | 默认显示高度 px（72~200 整数；选用该皮肤时大小落到它，用户另行调整优先，缺省 120） |
 | `opacity` | 默认不透明度 %（20~100 整数；选用该皮肤时透明度落到它，用户另行调整优先，缺省 100） |
 | `hue` | 默认色相旋转 °（0~360 整数；选用该皮肤时色相落到它，用户另行调整优先，缺省 0=原色） |
+| `hueCycle` | `true` 选用该皮肤时自动开流光变色（缓慢循环色相，色相滑杆值作基底），缺省关 |
+| `splitCount` | 分裂克隆数（2~6 整数；仅 split 动作，覆盖引擎随机的 2-3，如史莱姆王 5 只） |
+| `driveStyle` | drive 演出风格：`normal` 直开 / `wheelie` 抬前轮 / `wiggle` 摇头晃脑 / `random` 每次随机，缺省 normal |
+| `doneVoice` | 完成路径专属合成音色（如 `siren` 警笛）：戳/表演仍走 voice，完成庆祝走它，缺省无 |
+| `doneSounds` | 完成路径专属采样（mp3 路径数组，优先级低于 doneVoice），缺省无 |
 
 ### 可绑定动作（闭集）
 
 `fly` 飞行 · `dance` 摇摆舞 · `spin` 转圈 · `hops` 连跳 · `roll` 翻滚 ·
-`breach` 跃出水面 · `sway` 奶牛摇 · `split` 分裂（主图隐身，2~3 个小号克隆散开乱跳再聚拢合体，软体角色绝配） · `random` 随机 · `signature` 签名动作占位
+`breach` 跃出水面 · `sway` 奶牛摇 · `split` 分裂（主图隐身，2~3 个小号克隆散开乱跳再聚拢合体，软体角色绝配） · `drive` 开过去（地面横穿：冲出屏幕再从另一侧杀回，车系角色签名，配 driveStyle） · `random` 随机 · `signature` 签名动作占位
 
 ## 4. 素材规格
 

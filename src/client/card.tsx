@@ -138,6 +138,7 @@ const zh = {
   'action.breach': '跃出水面',
   'action.sway': '摇摆',
   'action.split': '分裂',
+  'action.drive': '开过去',
   'action.random': '随机',
 }
 
@@ -251,6 +252,7 @@ const en: Record<keyof typeof zh, string> = {
   'action.breach': 'Breach',
   'action.sway': 'Sway',
   'action.split': 'Split',
+  'action.drive': 'Drive across',
   'action.random': 'Random',
 }
 
@@ -1169,7 +1171,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packSnap.skins.find((s) => s.id === skinId)?.defaultOpacity ?? 100
   const skinDefHue = (skinId: string): number =>
     packSnap.skins.find((s) => s.id === skinId)?.defaultHue ?? 0
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, hueCycle: cfg.petHueCycle, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), hueCycle: p.hueCycle ?? false, opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
+  const skinDefHueCycle = (skinId: string): boolean =>
+    packSnap.skins.find((s) => s.id === skinId)?.defaultHueCycle ?? false
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, hueCycle: cfg.petHueCycle, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), hueCycle: p.hueCycle ?? skinDefHueCycle(p.skin), opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
   /** 当前对象皮肤的默认大小/不透明度/色相（重置按钮目标值）。 */
@@ -1180,13 +1184,14 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
   const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
   const setTargetSkin = (v: string): void => {
-    // 换皮肤大小/透明度/色相落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
+    // 换皮肤大小/透明度/色相/流光落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
     const def = packSnap.skins.find((s) => s.id === v)
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
     const hue = def?.defaultHue ?? 0
-    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity, petHue: hue })
-    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity, hue } : p) })
+    const hueCycle = def?.defaultHueCycle ?? false
+    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity, hue, hueCycle } : p) })
   }
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })

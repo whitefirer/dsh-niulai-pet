@@ -24,11 +24,11 @@ import { impactAt, registerBody } from './physics.js'
 import type { VoiceDebugBus } from './voice-debug.js'
 
 /** 叫声：mama=牛来真声 mp3；其余为 WebAudio 合成；null=无声。 */
-export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | 'meow' | null
+export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | 'meow' | 'crackle' | 'engine' | 'motor' | 'siren' | null
 
 /** 可绑定到事件的动作。signature=当前皮肤签名动作。 */
 export type ActionName =
-  | 'signature' | 'fly' | 'dance' | 'spin' | 'hops' | 'roll' | 'breach' | 'sway' | 'split' | 'random'
+  | 'signature' | 'fly' | 'dance' | 'spin' | 'hops' | 'roll' | 'breach' | 'sway' | 'split' | 'drive' | 'random'
 
 /** 喊叫动画帧：at = 起始时刻（占喊声全长比例 0..1，升序）；rock = 该帧期间附加倒地摇摆。 */
 export interface ShoutFrame {
@@ -78,6 +78,16 @@ export interface SkinDef {
   defaultOpacity?: number
   /** 默认色相旋转 °（角色包声明，0-360；选用该皮肤时色相落到它，用户另行调整优先；缺省 0=原色）。 */
   defaultHue?: number
+  /** 默认流光变色开关（角色包声明；选用该皮肤时自动开，用户另行调整优先；缺省关）。 */
+  defaultHueCycle?: boolean
+  /** 分裂克隆数（2-6；仅 split 动作，覆盖引擎默认的随机 2-3，如史莱姆王 5 只）。 */
+  splitCount?: number
+  /** drive 的演出风格：normal 直开 / wheelie 抬前轮 / wiggle 摇头晃脑 / random 每次随机。 */
+  driveStyle?: 'normal' | 'wheelie' | 'wiggle' | 'random'
+  /** 完成路径专属叫声（doneSounds，mp3 dataurl；如警车警笛——完成时替代普通叫声）。 */
+  doneSounds?: string[]
+  /** 完成路径专属合成音色（如 'siren' 警笛；优先级 doneVoice → doneSounds → 普通叫声）。 */
+  doneVoice?: VoiceName
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -140,12 +150,12 @@ type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配置热改）
 
 /** 随机池（具体动作）。 */
-const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split']
+const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'drive']
 /** 动作全序（菜单循环顺序、设置卡片下拉项；合法性唯一围栏，host schema 是 z.string() 不枚举——前向兼容，见 index.js Action 注释）。 */
 export const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
 const ACTION_LABEL: Record<ActionName, string> = {
   signature: '签名动作', fly: '飞行', dance: '摇摆舞', spin: '转圈', hops: '连跳',
-  roll: '翻滚', breach: '跃出水面', sway: '摇摆', split: '分裂', random: '随机',
+  roll: '翻滚', breach: '跃出水面', sway: '摇摆', split: '分裂', drive: '开过去', random: '随机',
 }
 
 /** 全局气泡唠叨语录（与皮肤专属语录合并抽取）。 */
@@ -329,6 +339,105 @@ function synthBoing(ctx: AudioContext, strength: number): void {
   osc.start(t0); osc.stop(t0 + 0.32)
 }
 
+/** 火焰噼啪（熔岩史莱姆）：白噪低嘶底 + 随机噼啪爆点，暖烘烘的。 */
+function synthCrackle(ctx: AudioContext): void {
+  const t0 = ctx.currentTime
+  const dur = 0.7
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const data = buf.getChannelData(0)
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+  const src = ctx.createBufferSource()
+  src.buffer = buf
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.frequency.value = 900
+  bp.Q.value = 0.6
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.05)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  src.connect(bp); bp.connect(g); g.connect(volDest(ctx))
+  src.start(t0); src.stop(t0 + dur)
+  for (let i = 0; i < 7; i++) {
+    const at = t0 + Math.random() * 0.45
+    const osc = ctx.createOscillator()
+    osc.type = 'square'
+    osc.frequency.setValueAtTime(1600 + Math.random() * 1600, at)
+    osc.frequency.exponentialRampToValueAtTime(280, at + 0.045)
+    const g2 = ctx.createGain()
+    g2.gain.setValueAtTime(0.0001, at)
+    g2.gain.exponentialRampToValueAtTime(0.09, at + 0.004)
+    g2.gain.exponentialRampToValueAtTime(0.0001, at + 0.05)
+    osc.connect(g2); g2.connect(volDest(ctx))
+    osc.start(at); osc.stop(at + 0.06)
+  }
+}
+
+/** 引擎低吼（警车）：锯齿+方波双层，转速上拉后回落，一闯就走的声。 */
+function synthEngine(ctx: AudioContext): void {
+  const t0 = ctx.currentTime
+  const make = (type: OscillatorType, f0: number, f1: number, vol: number, stopAt: number): void => {
+    const osc = ctx.createOscillator()
+    osc.type = type
+    osc.frequency.setValueAtTime(f0, t0)
+    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.28)
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.value = 700
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.045)
+    g.gain.exponentialRampToValueAtTime(vol * 0.5, t0 + 0.5)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + stopAt)
+    osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
+    osc.start(t0); osc.stop(t0 + stopAt)
+  }
+  make('sawtooth', 68, 150, 0.2, 0.95)
+  make('square', 34, 72, 0.14, 0.95)
+}
+
+/** 摩托高转：音区整体上移 + 更快上拉，一听就是两轮车。 */
+function synthMotor(ctx: AudioContext): void {
+  const t0 = ctx.currentTime
+  const make = (type: OscillatorType, f0: number, f1: number, vol: number, stopAt: number): void => {
+    const osc = ctx.createOscillator()
+    osc.type = type
+    osc.frequency.setValueAtTime(f0, t0)
+    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.2)
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.value = 1400
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t0)
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.04)
+    g.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + 0.4)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + stopAt)
+    osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
+    osc.start(t0); osc.stop(t0 + stopAt)
+  }
+  make('triangle', 130, 300, 0.18, 0.8)
+  make('sawtooth', 65, 150, 0.12, 0.8)
+}
+
+/** 警笛：双音上下交替两轮（高-低-高-低），呜呜呜。 */
+function synthSiren(ctx: AudioContext): void {
+  const t0 = ctx.currentTime
+  for (let round = 0; round < 2; round++) {
+    const a = t0 + round * 0.9
+    for (const [f, off] of [[640, 0], [460, 0.45]] as Array<[number, number]>) {
+      const osc = ctx.createOscillator()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(f, a + off)
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0.0001, a + off)
+      g.gain.exponentialRampToValueAtTime(0.14, a + off + 0.05)
+      g.gain.exponentialRampToValueAtTime(0.0001, a + off + 0.42)
+      osc.connect(g); g.connect(volDest(ctx))
+      osc.start(a + off); osc.stop(a + off + 0.45)
+    }
+  }
+}
+
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
   let skins = assets.skins.length > 0
     ? assets.skins
@@ -355,9 +464,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       ? c.petHue
       : (c.extraPets.find((p) => p.id === petId)?.hue
           ?? skins.find((s) => s.id === mySkinId(c))?.defaultHue ?? 0)
-  /** 本宠流光变色开关：主宠读 petHueCycle；额外表读各自条目（缺省 false）。 */
+  /** 本宠流光变色开关：主宠读 petHueCycle；额外表读各自条目（缺省回皮肤包声明，再缺省 false）。 */
   const myHueCycle = (c: PetConfig): boolean =>
-    petId === 'main' ? c.petHueCycle : (c.extraPets.find((p) => p.id === petId)?.hueCycle ?? false)
+    petId === 'main'
+      ? c.petHueCycle
+      : (c.extraPets.find((p) => p.id === petId)?.hueCycle
+          ?? skins.find((s) => s.id === mySkinId(c))?.defaultHueCycle ?? false)
   /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省回皮肤包声明的默认，再缺省 100）。 */
   const myOpacity = (c: PetConfig): number =>
     petId === 'main'
@@ -371,11 +483,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
     const hue = def?.defaultHue ?? 0
+    const hueCycle = def?.defaultHueCycle ?? false
     if (petId === 'main') {
-      config.set({ skin, petSize: size, petOpacity: opacity, petHue: hue })
+      config.set({ skin, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle })
       return
     }
-    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity, hue } : p)
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity, hue, hueCycle } : p)
     config.set({ extraPets: list })
   }
   /** 写本宠色相：主宠写 petHue；额外表读-改-写自己的条目。 */
@@ -568,8 +681,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
+  // bottom 抬高给完成光环让位（光环 103%，环高约 22px，气泡压在其上方）
   bubble.style.cssText = [
-    'position:absolute', 'bottom:105%', 'left:50%',
+    'position:absolute', 'bottom:calc(103% + 30px)', 'left:50%',
     'transform:translateX(-50%) scale(var(--pop,0)) scaleX(var(--face,1))',
     'background:#fff', 'color:#c2502a', 'font:700 15px/1.6 system-ui,sans-serif',
     'padding:2px 12px', 'border-radius:14px', 'border:2px solid #c2502a',
@@ -608,7 +722,32 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   aboutQuote.style.cssText = 'margin-top:6px;color:#fbbf24;font-size:12px'
   about.append(aboutTitle, aboutVer, aboutNote, aboutQuote)
 
-  root.append(img, heatLayer, bubble, menu, about)
+  // ---- 完成光环：done 庆祝时头顶金光环浮现（全部皮肤通用，幽灵类天然合题） ----
+  const halo = document.createElement('div')
+  halo.style.cssText = [
+    'position:absolute', 'bottom:103%', 'left:50%', 'opacity:0', 'pointer-events:none',
+    'width:64px', 'height:22px', 'border-radius:50%',
+    'border:3px solid rgba(255,215,94,.95)',
+    'box-shadow:0 0 12px rgba(255,205,80,.85), inset 0 0 10px rgba(255,225,140,.6)',
+    'transform:translateX(-50%)',
+  ].join(';')
+  let haloAnim: Animation | null = null
+  const showHalo = (): void => {
+    if (destroyed) return
+    haloAnim?.cancel()
+    haloAnim = halo.animate(
+      [
+        { transform: 'translateX(-50%) scaleX(0.2) scaleY(0.2) translateY(16px)', opacity: 0 },
+        { transform: 'translateX(-50%) scaleX(1.25) scaleY(0.9) translateY(0)', opacity: 1, offset: 0.22 },
+        { transform: 'translateX(-50%) scaleX(1) scaleY(1) translateY(-5px)', opacity: 1, offset: 0.4 },
+        { transform: 'translateX(-50%) scaleX(1) scaleY(1) translateY(0)', opacity: 1, offset: 0.82 },
+        { transform: 'translateX(-50%) scaleX(1.15) scaleY(0.6) translateY(0)', opacity: 0 },
+      ],
+      { duration: 3600, easing: 'ease-out' },
+    )
+    void haloAnim.finished.catch(() => {})
+  }
+  root.append(img, heatLayer, bubble, halo, menu, about)
   document.body.appendChild(root)
 
   // 守灵：dsh 首屏 React 挂载后会置换 body 内容，把直挂节点清掉——
@@ -677,6 +816,20 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 连喊链在放（非循环模式；戳一下应声用）。 */
   let chainActive = false
 
+  /** 合成音色播放（playVoice / doneVoice 共用；doneVoice 让完成路径有专属预设如警笛）。 */
+  const playSynthVoice = (v: VoiceName): number => {
+    const ctx = audioCtx()
+    if (ctx === null) return 0
+    if (v === 'moo') { synthMoo(ctx); return 950 }
+    if (v === 'whale') { synthWhale(ctx); return 1650 }
+    if (v === 'meow') { synthMeow(ctx); return 800 }
+    if (v === 'crackle') { synthCrackle(ctx); return 700 }
+    if (v === 'engine') { synthEngine(ctx); return 950 }
+    if (v === 'motor') { synthMotor(ctx); return 800 }
+    if (v === 'siren') { synthSiren(ctx); return 1800 }
+    synthSqueak(ctx)
+    return 450
+  }
   /** 放一声当前皮肤的叫声，返回时长 ms（0=无声/被静音）。 */
   const playVoice = (): number => {
     if (muted || masterVolume === 0) return 0
@@ -693,29 +846,37 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       const d = soundDur.get(src)
       return d !== undefined ? Math.round(d * 1000) + 150 : 2600
     }
-    if (s.voice === 'moo' || s.voice === 'whale' || s.voice === 'squeak' || s.voice === 'meow') {
-      const ctx = audioCtx()
-      if (ctx === null) return 0
-      if (s.voice === 'moo') { synthMoo(ctx); return 950 }
-      if (s.voice === 'whale') { synthWhale(ctx); return 1650 }
-      if (s.voice === 'meow') { synthMeow(ctx); return 800 }
-      synthSqueak(ctx)
-      return 450
-    }
+    if (s.voice !== null) return playSynthVoice(s.voice)
     return 0
   }
 
-  /** 完成提示音：自定义开关开着且有文件时放自定义音（仅完成路径用；戳/表演仍走 playVoice 角色叫声）。 */
+  /** 完成提示音：自定义开关 → 皮肤 doneVoice（合成，如警笛） → 皮肤 doneSounds（采样）
+   *   → 普通叫声；戳/表演仍走 playVoice。 */
   const playNotify = (): number => {
     if (muted || masterVolume === 0) return 0
-    if (!customSoundOn || customSound === '') return playVoice()
-    const audio = new Audio(customSound)
-    audio.volume = masterVolume / 100
-    playingAudio = audio
-    audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
-    void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
-    const d = soundDur.get(customSound)
-    return d !== undefined ? Math.round(d * 1000) + 150 : 2600
+    if (customSoundOn && customSound !== '') {
+      const audio = new Audio(customSound)
+      audio.volume = masterVolume / 100
+      playingAudio = audio
+      audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
+      void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
+      const d = soundDur.get(customSound)
+      return d !== undefined ? Math.round(d * 1000) + 150 : 2600
+    }
+    const doneVoice = cur().doneVoice
+    if (doneVoice !== undefined) return playSynthVoice(doneVoice)
+    const doneList = cur().doneSounds
+    if (doneList !== undefined && doneList.length > 0) {
+      const src = doneList[Math.floor(Math.random() * doneList.length)]
+      const audio = new Audio(src)
+      audio.volume = masterVolume / 100
+      playingAudio = audio
+      audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
+      void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
+      const d = soundDur.get(src)
+      return d !== undefined ? Math.round(d * 1000) + 150 : 2600
+    }
+    return playVoice()
   }
 
   /**
@@ -1040,7 +1201,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (destroyed) { cleanupSplit(); return }
     playVoice() // 裂开一声（squeak/moo/采样，随皮肤音色；静音自吞）
 
-    const n = Math.random() < 0.5 ? 2 : 3
+    const n = cur().splitCount ?? (Math.random() < 0.5 ? 2 : 3) // 皮肤可声明分裂数（史莱姆王 5-6 只）
     // 克隆身高按面积守恒：原高/√n（2 只≈71%、3 只≈58%）——看上去合体后正好还原大史莱姆
     const miniH = Math.max(36, Math.round(petH / Math.sqrt(n)))
     // 克隆滤镜与主宠镜像一致（变色/透明度/红温快照；睡眠压暗分裂前已唤醒不叠）+ 自己的小投影
@@ -1286,6 +1447,63 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 菜单/一起飞：路线随机（dive 抛物线 / arc 跃出弧），方向与时长见 flight 内随机。 */
   const flyAcross = (): Promise<void> => flight(Math.random() < 0.7 ? 'dive' : 'arc')
 
+  /** 地面横穿（警车/摩托签名）：引擎声开吼 → 沿路面冲出屏幕 → 从另一侧杀回 → 滑回原位。
+   *  演出风格走皮肤 driveStyle（wheelie=全程抬前轮 / wiggle=高频摇头晃脑 / random 每次抽）。 */
+  const driveAcross = async (): Promise<void> => {
+    if (mood === 'drag' || mood === 'fly' || destroyed) return
+    mood = 'fly'
+    breathe.cancel()
+    const s = cur()
+    const homeX = x
+    const homeFacing = facing
+    const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
+    facing = dir
+    root.style.setProperty('--face', String(dir))
+    playVoice() // 引擎/摩托吼一声（警笛走 doneSounds 在完成路径另播）
+    const style = s.driveStyle === 'random' ? (Math.random() < 0.5 ? 'wheelie' : 'wiggle') : s.driveStyle ?? 'normal'
+    const w = root.getBoundingClientRect().width
+    const off = w + 40
+    const start = performance.now()
+    // 分段：0-0.34 冲出本侧屏外 → 0.36-0.62 从另一侧进场 → 0.64-1 滑回原位（带减速）
+    const dur = 3600
+    await new Promise<void>((resolve) => {
+      const step = (now: number): void => {
+        if (destroyed || mood !== 'fly') { resolve(); return }
+        const t = Math.min(1, (now - start) / dur)
+        let nx: number
+        if (t < 0.34) nx = homeX + dir * window.innerWidth * ((t / 0.34) ** 1.6) // 加速冲出
+        else if (t < 0.36) nx = dir === 1 ? -off : window.innerWidth + off // 屏幕外一闪
+        else if (t < 0.62) {
+          const k = (t - 0.36) / 0.26
+          nx = (dir === 1 ? -off : window.innerWidth + off) + (dir === 1 ? 1 : -1) * (window.innerWidth + off * 2) * k
+        } else {
+          const k = (t - 0.64) / 0.36
+          const e = 1 - (1 - k) * (1 - k) // easeOut：减速滑回
+          nx = (dir === 1 ? window.innerWidth + off : -off) + (homeX - (dir === 1 ? window.innerWidth + off : -off)) * e
+        }
+        x = nx
+        let rot = 0
+        if (style === 'wheelie') rot = -24 // 前轮抬（镜像父级内不乘 dir）
+        else if (style === 'wiggle') rot = Math.sin(t * Math.PI * 9) * 9
+        root.style.transform = `translateX(${x}px) scaleX(${facing})`
+        img.style.transform = `rotate(${rot}deg)`
+        if (t < 1) requestAnimationFrame(step)
+        else resolve()
+      }
+      requestAnimationFrame(step)
+    })
+    if (destroyed) return
+    if (mood !== 'fly') return
+    x = homeX
+    facing = homeFacing
+    root.style.setProperty('--face', String(homeFacing))
+    img.style.transform = ''
+    img.src = skinIdle()
+    applyX()
+    breathe.play()
+    mood = 'idle'
+  }
+
   /** 皮肤的事件默认绑定（角色包 events 声明；无声明回落 signature/hops）。 */
   const defaultsOf = (gid: string): { done: ActionName; poke: ActionName } =>
     assets.defaultActions?.(gid) ?? { done: 'signature', poke: 'hops' }
@@ -1300,13 +1518,21 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     wakeFromSleep() // 睡着（压扁变暗）触发动作先回正常态，不做梦游演出
     let pick = name
     if (pick === 'signature') pick = cur().signature
-    if (pick === 'random') pick = ACTION_POOL[Math.floor(Math.random() * ACTION_POOL.length)]
+    // 随机池剔除 drive（车类演出留给车系皮肤自己绑，随机抽到牛来开车很出戏）
+    if (pick === 'random') {
+      const pool = ACTION_POOL.filter((a) => a !== 'drive')
+      pick = pool[Math.floor(Math.random() * pool.length)]
+    }
     if (pick === 'fly') {
       void flyAcross()
       return
     }
     if (pick === 'breach') {
       void flight('arc')
+      return
+    }
+    if (pick === 'drive') {
+      void driveAcross()
       return
     }
     mood = 'celebrate'
@@ -1499,6 +1725,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const fireCelebrate = (): void => {
     if (destroyed) return
     celebrateGen++ // 新一轮庆祝：旧连喊链（若有）代际不符自然死
+    showHalo() // 完成光环：本轮庆祝全程浮现（通用，皮肤无关）
     if (shoutOnDone && !muted) {
       if (shoutLoopOn) {
         // 循环模式：连喊几声对循环无意义，跳过接龙直接布防循环（第一声 0.6s 后）
@@ -1527,12 +1754,19 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         showBubble(Array(shoutCount).fill(text).join(' '), 1400 + shoutCount * 2200)
       }
     }
-    if (!(shoutOnDone && animTakesOver())) runAction(doneAction()) // 帧演出即庆祝本体时动作让位；安静模式照做
+    const action = doneAction()
+    if (!(shoutOnDone && !animAllows(action))) runAction(action) // 帧演出即庆祝本体时动作让位；安静模式照做
   }
 
-  /** 有喊叫动画且会出声：帧序列本身就是演出，移动类动作（翻滚/跳）得让位。 */
-  const animTakesOver = (): boolean =>
-    (cur().shoutAnim?.length ?? 0) > 0 && !muted && masterVolume > 0
+  /** 有喊叫动画且会出声：帧序列本身就是演出，移动类动作（翻滚/跳）得让位。
+   *  split 例外：分裂自身就是完整演出，和爆炎帧同台没问题（火史莱姆喊=喷火、戳=分裂）。
+   *  注意先解析签名占位符——incoming 是 'signature' 时要落到皮肤实际签名再判。 */
+  const animAllows = (a: ActionName): boolean => {
+    let pick = a
+    if (pick === 'signature') pick = cur().signature
+    if (pick === 'random') return true
+    return pick === 'split' || !((cur().shoutAnim?.length ?? 0) > 0 && !muted && masterVolume > 0)
+  }
 
   const celebrate = (): void => {
     const now = Date.now()
@@ -1584,7 +1818,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       playReply()
     }
     if (!wasLooping && !wasChain) shout()
-    if (!animTakesOver()) runAction(pokeAction()) // 帧演出在放时移动类动作让位（否则大笑帧被转成陀螺）
+    const act = pokeAction()
+    if (animAllows(act)) runAction(act) // 帧演出在放时移动类动作让位（否则大笑帧被转成陀螺）
   }
 
   // ---- 指针交互（点击 vs 拖拽）----
@@ -1792,7 +2027,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
-      { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (!animTakesOver()) runAction('signature') } },
+      { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (animAllows('signature')) runAction('signature') } },
       ...(assets.onFamilyToggle !== undefined
         ? [{ kind: 'action', label: '👪 全家福', fn: () => { assets.onFamilyToggle?.() } } as Row]
         : []),
@@ -2098,6 +2333,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       unsubSkins?.()
       unsubHighlight?.()
       unsubHold?.()
+      haloAnim?.cancel()
       unregisterBody?.()
       if (fallRaf !== 0) cancelAnimationFrame(fallRaf)
       keeper.disconnect()
