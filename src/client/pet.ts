@@ -500,6 +500,15 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
+    // 蒙版必须与透明度同帧装上——否则第一戳后会闪一整块没剪形的红矩形（踩过：
+    // 蒙版只在 90ms 拍里跟，透明度先到 = 原地瞬间红色残影）
+    if (heat > 0.02) {
+      const maskSrc = `url("${img.src}")`
+      if (heatLayer.style.webkitMaskImage !== maskSrc) {
+        heatLayer.style.webkitMaskImage = maskSrc
+        heatLayer.style.maskImage = maskSrc
+      }
+    }
     heatLayer.style.opacity = String(Math.min(0.5, heat * 0.55).toFixed(2))
   }
   applyImgFilter()
@@ -511,8 +520,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       applyImgFilter()
     }
     if (heat > 0) {
-      heatLayer.style.webkitMaskImage = `url("${img.src}")`
-      heatLayer.style.maskImage = `url("${img.src}")`
       if (!raging) {
         heat = Math.max(0, heat - 0.003)
         applyImgFilter()
