@@ -471,6 +471,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
+  // 红温剪影层：当前图作 alpha 蒙版盖纯红（蓝皮滤镜拉不红，靠它真变红）；
+  // 蒙版在 cycleTimer 拍里跟随 img.src（最多 90ms 滞后），透明度 = 火气
+  const heatLayer = document.createElement('div')
+  heatLayer.style.cssText = [
+    'position:absolute', 'inset:0', 'pointer-events:none', 'opacity:0',
+    'background:rgb(255,60,45)',
+    '-webkit-mask-repeat:no-repeat', 'mask-repeat:no-repeat',
+    '-webkit-mask-position:bottom center', 'mask-position:bottom center',
+    '-webkit-mask-size:auto 100%', 'mask-size:auto 100%',
+  ].join(';')
   /** 红温值 0~1（连戳积累，缓慢消退；applyImgFilter 合成用）。 */
   let heat = 0
   /** 红温爆发中（不理人窗口）。 */
@@ -482,26 +492,30 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (effHue !== 0) parts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) parts.push(`opacity(${petOpacity}%)`)
     if (heat > 0.02) {
-      // 红温：微红移（sepia+saturate 把任意皮往红拉）+ 红色辉光，强度随火气
-      parts.push(`sepia(${(0.4 * heat).toFixed(2)})`)
-      parts.push(`saturate(${(1 + 1.6 * heat).toFixed(2)})`)
-      parts.push(`hue-rotate(${Math.round(-14 * heat)}deg)`)
+      // 红温：轻度暖化 + 红色辉光（真变红靠 heatLayer 剪影层，见上）
+      parts.push(`sepia(${(0.25 * heat).toFixed(2)})`)
+      parts.push(`saturate(${(1 + 0.8 * heat).toFixed(2)})`)
       parts.push(`drop-shadow(0 0 ${Math.round(4 + heat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * heat).toFixed(2)}))`)
     }
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
+    heatLayer.style.opacity = String(Math.min(0.5, heat * 0.55).toFixed(2))
   }
   applyImgFilter()
-  // 流光相位推进 + 红温消退共用一拍：90ms；红温 ~10s 凉透
+  // 流光相位推进 + 红温消退/剪影跟随共用一拍：90ms；红温 ~15s 才凉透一半（长演出角色也看得见红）
   const cycleTimer = window.setInterval(() => {
     if (destroyed) return
     if (hueCycleOn) {
       cyclePhase = (cyclePhase + 1.5) % 360
       applyImgFilter()
     }
-    if (heat > 0 && !raging) {
-      heat = Math.max(0, heat - 0.006) // ~15s 凉透（慢于积火：快戳 4 下必爆）
-      applyImgFilter()
+    if (heat > 0) {
+      heatLayer.style.webkitMaskImage = `url("${img.src}")`
+      heatLayer.style.maskImage = `url("${img.src}")`
+      if (!raging) {
+        heat = Math.max(0, heat - 0.003)
+        applyImgFilter()
+      }
     }
   }, 90)
 
@@ -575,7 +589,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   aboutQuote.style.cssText = 'margin-top:6px;color:#fbbf24;font-size:12px'
   about.append(aboutTitle, aboutVer, aboutNote, aboutQuote)
 
-  root.append(img, bubble, menu, about)
+  root.append(img, heatLayer, bubble, menu, about)
   document.body.appendChild(root)
 
   // 守灵：dsh 首屏 React 挂载后会置换 body 内容，把直挂节点清掉——
@@ -982,6 +996,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     splitting = false
     img.style.visibility = ''
     img.style.transform = ''
+    heatLayer.style.visibility = ''
     root.style.pointerEvents = ''
   }
   const split = async (): Promise<void> => {
@@ -1002,17 +1017,23 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     ).finished.catch(() => {})
     img.style.visibility = 'hidden'
     img.style.transform = ''
+    heatLayer.style.visibility = 'hidden' // 剪影层也得跟着隐（不然隐身期留个红影子）
     if (destroyed) { cleanupSplit(); return }
     playVoice() // 裂开一声（squeak/moo/采样，随皮肤音色；静音自吞）
 
     const n = Math.random() < 0.5 ? 2 : 3
     // 克隆身高按面积守恒：原高/√n（2 只≈71%、3 只≈58%）——看上去合体后正好还原大史莱姆
     const miniH = Math.max(36, Math.round(petH / Math.sqrt(n)))
-    // 克隆滤镜与主宠镜像一致（变色/透明度；睡眠压暗分裂前已唤醒不叠）+ 自己的小投影
+    // 克隆滤镜与主宠镜像一致（变色/透明度/红温快照；睡眠压暗分裂前已唤醒不叠）+ 自己的小投影
     const cloneFilterParts: string[] = []
     const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
     if (effHue !== 0) cloneFilterParts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) cloneFilterParts.push(`opacity(${petOpacity}%)`)
+    if (heat > 0.02) {
+      cloneFilterParts.push(`sepia(${(0.25 * heat).toFixed(2)})`)
+      cloneFilterParts.push(`saturate(${(1 + 0.8 * heat).toFixed(2)})`)
+      cloneFilterParts.push(`drop-shadow(0 0 ${Math.round(4 + heat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * heat).toFixed(2)}))`)
+    }
     cloneFilterParts.push('drop-shadow(0 2px 3px rgba(0,0,0,.3))')
     const cloneFilter = cloneFilterParts.join(' ')
     const scatterDur = 2100

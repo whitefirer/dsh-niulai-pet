@@ -46,6 +46,7 @@ const zh = {
   tabPet: '当前桌宠',
   tabGlobal: '通用',
   tabCustom: '自定义',
+  tabAdvanced: '高级',
   sleepEnabled: '闲置打盹（变灰变矮）',
   walkEnabled: '随意走动（闲置游走）',
   groundOffset: '离地高度（px）',
@@ -157,6 +158,7 @@ const en: Record<keyof typeof zh, string> = {
   tabPet: 'Current pet',
   tabGlobal: 'General',
   tabCustom: 'Custom',
+  tabAdvanced: 'Advanced',
   sleepEnabled: 'Idle nap (dims & squashes)',
   walkEnabled: 'Wander (idle walk)',
   groundOffset: 'Ground height (px)',
@@ -1099,7 +1101,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const [voiceIssue, setVoiceIssue] = useState<'denied' | 'no-mic' | null>(null)
   // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
   const [petSel, setPetSel] = useState(props.initialPet ?? 'main')
-  const [tab, setTab] = useState<'pet' | 'global' | 'custom'>('pet')
+  const [tab, setTab] = useState<'pet' | 'global' | 'custom' | 'advanced'>('pet')
   // 「当前桌宠」tab 展开期间持续高亮选中桌宠；切 tab/换对象/收起/卸载（关面板）即恢复。
   // 必须在 ready 早退前挂 hook（该早退是既有模式，hook 顺序不能被打乱）。
   const hl = props.highlight
@@ -1230,7 +1232,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
           <div style={{ borderTop: `1px solid ${colors.border}`, margin: '0 16px', padding: '4px 0 12px' }}>
             {!writable ? <p role="status" style={{ margin: '12px 0 0', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('readOnly')}</p> : null}
             <div style={{ display: 'flex', gap: 6, margin: '10px 0 2px' }}>
-              {(['pet', 'global', 'custom'] as const).map((id) => (
+              {(['pet', 'global', 'custom', 'advanced'] as const).map((id) => (
                 <button
                   key={id}
                   type="button"
@@ -1244,7 +1246,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                     color: tab === id ? 'var(--dsw-alias-brand-primary, #3b82f6)' : colors.labelPrimary,
                   }}
                 >
-                  {t(id === 'pet' ? 'tabPet' : id === 'global' ? 'tabGlobal' : 'tabCustom')}
+                  {t(id === 'pet' ? 'tabPet' : id === 'global' ? 'tabGlobal' : id === 'custom' ? 'tabCustom' : 'tabAdvanced')}
                 </button>
               ))}
             </div>
@@ -1290,6 +1292,40 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('replyNiulai')}>
               <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
             </Row>
+            <Row label={t('talkative')}>
+              <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
+            </Row>
+            <Row label={t('hideAll')}>
+              <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
+            </Row>
+                </>
+              )
+              : null}
+            {tab === 'custom'
+              ? (
+                <>
+            <Row label={t('customSound')}>
+              <Switch on={cfg.customSoundOn} disabled={disabled} label={t('customSound')} onChange={(on) => { props.set({ customSoundOn: on }) }} />
+            </Row>
+            {cfg.customSoundOn
+              ? (
+                <>
+                  <Row label="　">
+                    <CustomSoundField value={cfg.customSound} disabled={disabled}
+                      labels={{ import: t('customSoundImport'), test: t('customSoundTest'), clear: t('customSoundClear'), tooBig: t('customSoundTooBig') }}
+                      onSet={(v) => { props.set({ customSound: v }) }} />
+                  </Row>
+                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('customSoundHint')}</div>
+                </>
+              )
+              : null}
+            {packs !== undefined ? <PackManager packs={packs} disabled={disabled} t={t} /> : null}
+                </>
+              )
+              : null}
+            {tab === 'advanced'
+              ? (
+                <>
             <Row label={t('voiceControl')}>
               <Switch on={cfg.voiceControl} disabled={disabled || !micOk} label={t('voiceControl')} onChange={onVoice} />
             </Row>
@@ -1372,54 +1408,12 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 </>
               )
               : null}
-            <Row label={t('talkative')}>
-              <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
-            </Row>
-            <Row label={t('hideAll')}>
-              <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
-            </Row>
-                </>
-              )
-              : null}
-            {tab === 'custom'
-              ? (
-                <>
-            <Row label={t('customSound')}>
-              <Switch on={cfg.customSoundOn} disabled={disabled} label={t('customSound')} onChange={(on) => { props.set({ customSoundOn: on }) }} />
-            </Row>
-            {cfg.customSoundOn
-              ? (
-                <>
-                  <Row label="　">
-                    <CustomSoundField value={cfg.customSound} disabled={disabled}
-                      labels={{ import: t('customSoundImport'), test: t('customSoundTest'), clear: t('customSoundClear'), tooBig: t('customSoundTooBig') }}
-                      onSet={(v) => { props.set({ customSound: v }) }} />
-                  </Row>
-                  <div style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('customSoundHint')}</div>
-                </>
-              )
-              : null}
-            {packs !== undefined ? <PackManager packs={packs} disabled={disabled} t={t} /> : null}
                 </>
               )
               : null}
             {tab === 'pet'
               ? (
                 <>
-            <div style={{ padding: '9px 0' }}>
-              <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>
-                {petList.length > 1 ? `${t('quips')} · ${targetSkinName}` : t('quips')}
-              </div>
-              <QuipsField
-                value={target.id === 'main' ? cfg.quips : (cfg.extraPets.find((p) => p.id === target.id)?.quips ?? cfg.quips)}
-                disabled={disabled} placeholder={t('quipsHint')}
-                onCommit={(quips) => {
-                  // 语录按只存：额外表写自己条目（清空=跟随全局链），主宠写全局 quips
-                  if (target.id === 'main') props.set({ quips })
-                  else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, quips } : p) })
-                }} />
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('quipsHint')}</div>
-            </div>
             {petList.length > 1
               ? (
                 <Row label={t('petTarget')}>
@@ -1543,6 +1537,20 @@ export function NiulaiCard(props: NiulaiCardProps) {
                 {ACTION_ORDER.map((a) => <option key={a} value={a} style={optionStyle}>{t(`action.${a}`)}</option>)}
               </select>
             </Row>
+            <div style={{ padding: '9px 0' }}>
+              <div style={{ fontSize: 13, color: colors.labelPrimary, marginBottom: 6 }}>
+                {petList.length > 1 ? `${t('quips')} · ${targetSkinName}` : t('quips')}
+              </div>
+              <QuipsField
+                value={target.id === 'main' ? cfg.quips : (cfg.extraPets.find((p) => p.id === target.id)?.quips ?? cfg.quips)}
+                disabled={disabled} placeholder={t('quipsHint')}
+                onCommit={(quips) => {
+                  // 语录按只存：额外表写自己条目（清空=跟随全局链），主宠写全局 quips
+                  if (target.id === 'main') props.set({ quips })
+                  else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, quips } : p) })
+                }} />
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary, marginTop: 6 }}>{t('quipsHint')}</div>
+            </div>
                 </>
               )
               : null}
