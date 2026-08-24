@@ -471,22 +471,67 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
-  /** 合成 img 滤镜：色相旋转（流光开时 = 基底色 + 滚动相位）+ 不透明度 + 睡眠压暗。 */
+  /** 红温值 0~1（连戳积累，缓慢消退；applyImgFilter 合成用）。 */
+  let heat = 0
+  /** 红温爆发中（不理人窗口）。 */
+  let raging = false
+  /** 合成 img 滤镜：色相旋转（流光开时 = 基底色 + 滚动相位）+ 不透明度 + 红温 + 睡眠压暗。 */
   const applyImgFilter = (): void => {
     const parts: string[] = []
     const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
     if (effHue !== 0) parts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) parts.push(`opacity(${petOpacity}%)`)
+    if (heat > 0.02) {
+      // 红温：微红移（sepia+saturate 把任意皮往红拉）+ 红色辉光，强度随火气
+      parts.push(`sepia(${(0.4 * heat).toFixed(2)})`)
+      parts.push(`saturate(${(1 + 1.6 * heat).toFixed(2)})`)
+      parts.push(`hue-rotate(${Math.round(-14 * heat)}deg)`)
+      parts.push(`drop-shadow(0 0 ${Math.round(4 + heat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * heat).toFixed(2)}))`)
+    }
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
   }
   applyImgFilter()
-  // 流光相位推进：90ms 一拍 1.5°，~21.6s 一圈；关着时纯空转（成本可忽略），destroy 统一清
+  // 流光相位推进 + 红温消退共用一拍：90ms；红温 ~10s 凉透
   const cycleTimer = window.setInterval(() => {
-    if (destroyed || !hueCycleOn) return
-    cyclePhase = (cyclePhase + 1.5) % 360
-    applyImgFilter()
+    if (destroyed) return
+    if (hueCycleOn) {
+      cyclePhase = (cyclePhase + 1.5) % 360
+      applyImgFilter()
+    }
+    if (heat > 0 && !raging) {
+      heat = Math.max(0, heat - 0.006) // ~15s 凉透（慢于积火：快戳 4 下必爆）
+      applyImgFilter()
+    }
   }, 90)
+
+  // ---- 连戳红温：连续戳积累火气（每戳 +0.25，平时缓慢消退），满格爆发一次：
+  // 哼一句 + 扭头背过去（爆发即泄火；爆发中与点爆的那一戳都不演正常戳反应=不理人）。 ----
+  const rage = async (): Promise<void> => {
+    raging = true
+    heat = 0
+    applyImgFilter()
+    showBubble('再戳我急了！', 2200)
+    facing = facing === 1 ? -1 : 1 // 扭头背过去
+    applyX()
+    await img.animate(
+      [
+        { transform: 'rotate(0deg)' },
+        { transform: 'rotate(-6deg)' },
+        { transform: 'rotate(5deg)' },
+        { transform: 'rotate(0deg)' },
+      ],
+      { duration: 520, easing: 'ease-in-out' },
+    ).finished.catch(() => {})
+    raging = false
+  }
+  /** 积火气；返回 true = 这一戳把火气点爆了（调用方只演爆发，不演正常戳反应）。 */
+  const addHeat = (): boolean => {
+    heat = Math.min(1, heat + 0.3)
+    applyImgFilter()
+    if (heat >= 1 && !raging) { void rage(); return true }
+    return false
+  }
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
@@ -1483,9 +1528,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     showBubble(cur().shoutBubble === '' ? '！' : cur().shoutBubble, Math.max(1500, ms + 300))
   }
 
-  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。 */
+  /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。
+   *  红温：爆发中不理人；这一戳把火气点爆了也只演爆发（扭头哼唧），不演正常戳反应。 */
   const poke = (): void => {
-    if (mood === 'drag' || mood === 'fly' || destroyed) return
+    if (mood === 'drag' || mood === 'fly' || destroyed || raging) return
+    if (addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
     const wasLooping = stopShoutLoop(true, '戳一下')
