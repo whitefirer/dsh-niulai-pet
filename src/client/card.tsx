@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createRoot } from 'react-dom/client'
 import type { ActionName } from './pet.js'
 import { ACTION_ORDER } from './pet.js'
 import { REPLY_MATCH, REPLY_REF } from './skins.js'
@@ -264,6 +265,8 @@ export interface NiulaiCardProps {
   packs?: PacksFace
   /** 点预览图高亮对应桌宠（pet.ts 认领）。 */
   highlight?: { emit(petId: string): void }
+  /** 悬浮设置面板形态：初始展开（设置页卡片默认收起）。 */
+  defaultOpen?: boolean
 }
 
 /** 卡片状态源：合并 ConfigStore（生效配置）与 scope（ready/writable）为一个 observable。 */
@@ -1003,7 +1006,7 @@ function PackManager(props: { packs: PacksFace; disabled: boolean; t: NiulaiCard
 
 /** 设置卡片组件：命名空间未 serve 时不渲染（与官方卡片同语义）。 */
 export function NiulaiCard(props: NiulaiCardProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(props.defaultOpen === true)
   // 语音开关的失败原因分态：denied=授权被拒/iframe 策略；no-mic=无设备（NotFoundError）
   const [voiceIssue, setVoiceIssue] = useState<'denied' | 'no-mic' | null>(null)
   // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
@@ -1388,4 +1391,51 @@ export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebu
     locale: CARD_NS,
     inject: () => controller.inject(),
   }, NiulaiCard))
+}
+
+/**
+ * 悬浮设置面板（右键菜单「⚙️ 设置」）：同一个 NiulaiCard 渲染进任意容器——
+ * 宿主没有「打开设置页并定位」的 API，面板绕过设置页原地开合，改完立即看桌宠反应。
+ * scope 伪装常驻 ready/writable（面板态没有命名空间配对一说）；
+ * t 座用内置字典（zh/en 按 navigator.language）。返回销毁函数。
+ */
+export function mountCardPanel(
+  container: HTMLElement,
+  store: ConfigStore,
+  voiceDebug?: VoiceDebugBus,
+  packs?: PacksFace,
+  highlight?: HighlightBus,
+): () => void {
+  const fakeScope: SettingsScopeLike = {
+    getSnapshot: () => ({ status: 'ready', writable: true }),
+    subscribe: () => () => {},
+    set: () => Promise.resolve(),
+  }
+  const controller = new CardController(store, fakeScope, voiceDebug, packs, highlight)
+  const zhMode = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')
+  const dict = (zhMode ? zh : en) as Record<string, string>
+  const t = (key: string, params?: Record<string, unknown>): string => {
+    const raw = dict[key] ?? (zh as Record<string, string>)[key] ?? key
+    return raw.replace(/\{(\w+)\}/g, (_m, k: string) => String(params?.[k] ?? `{${k}}`))
+  }
+  const useNiulaiPet = <S,>(selector: (state: NiulaiCardState) => S): S =>
+    useSyncExternalStore(controller.observable.subscribe, () => selector(controller.observable.getSnapshot()))
+  const face = controller.inject()
+  const root = createRoot(container)
+  root.render(
+    <NiulaiCard
+      t={t}
+      useNiulaiPet={useNiulaiPet}
+      set={face.set}
+      setSkinAction={face.setSkinAction}
+      voiceDebug={face.voiceDebug}
+      packs={face.packs}
+      highlight={face.highlight}
+      defaultOpen
+    />,
+  )
+  return () => {
+    root.unmount()
+    controller.dispose()
+  }
 }

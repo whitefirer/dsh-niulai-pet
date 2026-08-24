@@ -11,7 +11,7 @@ import { mountPet, type PetHandle } from './pet.js'
 import { SKINS, PackRegistry } from './skins.js'
 import { defaultActionsFor } from './packs.js'
 import { ConfigStore } from './config.js'
-import { registerSettingsCard } from './card.js'
+import { registerSettingsCard, mountCardPanel } from './card.js'
 import { VoiceDebugBus } from './voice-debug.js'
 import { HighlightBus } from './highlight.js'
 import { FAMILY_LEFT, FAMILY_RIGHT, FAMILY_LAYERED_WINGS, layoutLayered, layoutUniform } from './family.js'
@@ -128,6 +128,36 @@ export function apply(ctx: ClientCtx): void {
     registry.subscribe(() => store.updateSkinIds(registry.getSnapshot().skinIds))
     const voiceDebug = new VoiceDebugBus()
     const highlight = new HighlightBus()
+    // 悬浮设置面板（右键「⚙️ 设置」）：单例，锚定发起桌宠上方，点外即关。
+    // 渲染走 card.tsx 的 mountCardPanel（同一个 NiulaiCard 组件，同一份 ConfigStore）。
+    let panelEl: HTMLElement | null = null
+    let panelCleanup: (() => void) | null = null
+    const onDocDown = (ev: PointerEvent): void => {
+      if (panelEl !== null && !panelEl.contains(ev.target as Node)) closePanel()
+    }
+    const closePanel = (): void => {
+      panelCleanup?.()
+      panelCleanup = null
+      panelEl?.remove()
+      panelEl = null
+      document.removeEventListener('pointerdown', onDocDown, true)
+    }
+    const openSettingsPanel = (anchor: () => { x: number; y: number; w: number }): void => {
+      if (panelEl !== null) { closePanel(); return } // 再点一次 = 收起
+      const b = anchor()
+      const w = Math.min(360, window.innerWidth - 16)
+      const left = Math.min(Math.max(8, b.x + b.w / 2 - w / 2), window.innerWidth - w - 8)
+      const bottom = Math.max(8, window.innerHeight - b.y + 12)
+      panelEl = document.createElement('div')
+      panelEl.style.cssText = [
+        `position:fixed;left:${left}px;bottom:${bottom}px;width:${w}px`,
+        'max-height:70vh;overflow:auto;z-index:100002;border-radius:12px;padding:8px',
+        'background:#18181b;border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 40px rgba(0,0,0,.5)',
+      ].join(';')
+      document.body.appendChild(panelEl)
+      panelCleanup = mountCardPanel(panelEl, store, voiceDebug, registry, highlight)
+      document.addEventListener('pointerdown', onDocDown, true)
+    }
     const mkAssets = (petId?: string, defaultX?: number): Parameters<typeof mountPet>[0] => ({
       skins: registry.getSnapshot().skins,
       defaultSkin: 'niulai',
@@ -138,6 +168,11 @@ export function apply(ctx: ClientCtx): void {
       highlight,
       // 全家福菜单项只给主宠（闭包延迟引用，点击时管理器已就位）
       ...(petId === undefined ? { onFamilyToggle: () => { toggleFamily() } } : {}),
+      // 设置面板所有只都有（闭包延迟引用句柄；全家福展示宠查不到句柄就不弹）
+      onOpenSettings: () => {
+        const h = petId === undefined ? pet : extraPets.get(petId)
+        if (h !== undefined) openSettingsPanel(() => h.bounds())
+      },
     })
     const pet = mountPet(mkAssets(), store, voiceDebug)
     // 全家福（主宠菜单「👪 全家福」）：均匀列队 → 层次合影 → 收起循环。
@@ -233,7 +268,7 @@ export function apply(ctx: ClientCtx): void {
     if (new URLSearchParams(location.search).has('petdebug')) {
       ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
     }
-    ctx.effect(() => () => { pet.destroy(); for (const h of extraPets.values()) h.destroy(); for (const h of familyPets) h.destroy() }, 'niulai-pet pet')
+    ctx.effect(() => () => { closePanel(); pet.destroy(); for (const h of extraPets.values()) h.destroy(); for (const h of familyPets) h.destroy() }, 'niulai-pet pet')
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true })

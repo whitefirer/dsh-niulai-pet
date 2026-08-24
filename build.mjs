@@ -16,7 +16,12 @@ import { readFileSync } from 'node:fs'
 const PLUGIN_ID = 'dsh-niulai-pet'
 // 版本号构建期从 package.json 注入（关于面板用），发版 bump 后自动跟随
 const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
-const define = { __NIULAI_VERSION__: JSON.stringify(VERSION) }
+const define = {
+  __NIULAI_VERSION__: JSON.stringify(VERSION),
+  // 悬浮设置面板自带 react-dom：不打这个 define 会吃进 dev 版 react-dom，
+  // 其 act() 环境检测读平台 prod react 没有的 ReactCurrentActQueue 直接炸（踩过）
+  'process.env.NODE_ENV': '"production"',
+}
 
 await build({
   bundle: true,

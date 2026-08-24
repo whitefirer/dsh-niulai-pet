@@ -94,6 +94,8 @@ export interface PetAssets {
   onFlightEnd?: () => void
   /** 提供后右键菜单出现「👪 全家福」项（仅主宠传；插件入口/dsh 侧全家福管理）。 */
   onFamilyToggle?: () => void
+  /** 提供后右键「⚙️ 设置」打开悬浮设置面板（插件入口传；缺省气泡指路）。 */
+  onOpenSettings?: () => void
 }
 
 export interface PetHandle {
@@ -348,6 +350,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
     const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size } : p)
     config.set({ extraPets: list })
+  }
+  /** 写本宠色相：主宠写 petHue；额外表读-改-写自己的条目。 */
+  const setMyHue = (v: number): void => {
+    if (petId === 'main') {
+      config.set({ petHue: v })
+      return
+    }
+    config.set({ extraPets: config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, hue: v } : p) })
   }
   /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。
    *  展示性挂载（forceSkin，demo 全家福）不读不写位置记忆——列队位置由 demo 排。 */
@@ -1502,34 +1512,30 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     | { kind: 'bool'; label: string; on: boolean; fn: () => void }
     | { kind: 'cycle'; label: string; value: string; fn: () => void }
     | { kind: 'action'; label: string; fn: () => void }
+    | { kind: 'slider'; label: string; value: number; min: number; max: number; fn: (v: number) => void; preview: (v: number) => void }
 
+  /** 菜单即乐园：只留高频开关/动作；低频配置（完成喊几声/打盹/碰撞/动作绑定等）全归设置面板。 */
   const rebuildMenu = (): void => {
     menu.textContent = ''
-    const cycleAction = (a: ActionName): ActionName =>
-      ACTION_ORDER[(ACTION_ORDER.indexOf(a) + 1) % ACTION_ORDER.length]
     const skinIdx = skins.indexOf(skin)
     const nextSkin = skins[(skinIdx + 1) % skins.length]
     // 读写都走 ConfigStore：菜单行只发写请求，显示值来自 store 快照镜像
     // （store 变更 → 文末订阅 → syncConfig + 菜单就地重建，设置卡片同理）
     const rows: Row[] = [
       { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
-      { kind: 'bool', label: '📣 完成时喊', on: shoutOnDone, fn: () => { config.set({ shoutOnDone: !shoutOnDone }) } },
-      { kind: 'cycle', label: '🔁 完成连喊', value: `${shoutCount}声`, fn: () => { config.set({ shoutCount: shoutCount % 3 + 1 }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
-      { kind: 'bool', label: '😴 闲置打盹', on: sleepOn, fn: () => { config.set({ sleepEnabled: !sleepOn }) } },
-      { kind: 'bool', label: '🚶 随意走动', on: walkOn, fn: () => { config.set({ walkEnabled: !walkOn }) } },
-      { kind: 'bool', label: '🧲 物理碰撞', on: physicsOn, fn: () => { config.set({ physics: !physicsOn }) } },
-      { kind: 'bool', label: '🙈 隐藏全部', on: hiddenAll, fn: () => { config.set({ hidden: !hiddenAll }) } },
-      { kind: 'cycle', label: '🎬 完成时动作', value: ACTION_LABEL[doneAction()], fn: () => { config.setSkinAction(skin.id, 'done', cycleAction(doneAction())) } },
-      { kind: 'cycle', label: '👉 戳我动作', value: ACTION_LABEL[pokeAction()], fn: () => { config.setSkinAction(skin.id, 'poke', cycleAction(pokeAction())) } },
+      {
+        kind: 'slider', label: '🌈 色相', value: petHue, min: 0, max: 360,
+        fn: setMyHue,
+        preview: (v) => { petHue = v; applyImgFilter() },
+      },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (!animTakesOver()) runAction('signature') } },
       ...(assets.onFamilyToggle !== undefined
         ? [{ kind: 'action', label: '👪 全家福', fn: () => { assets.onFamilyToggle?.() } } as Row]
         : []),
-      // 找不到打开设置页的宿主 API（rc.7 无此服务），气泡指路代替跳转
-      { kind: 'action', label: '⚙️ 设置', fn: () => { showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200, true) } },
+      { kind: 'action', label: '⚙️ 设置', fn: () => { openSettings() } },
       { kind: 'action', label: 'ℹ️ 关于', fn: () => { about.style.display = about.style.display === 'block' ? 'none' : 'block' } },
     ]
     // 多只桌宠（数据按只分存：皮肤/位置各自独立，行为配置全局共享）：
@@ -1537,7 +1543,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const extraList = config.getSnapshot().extraPets
     const maxExtras = config.getSnapshot().maxPets - 1
     if (petId === 'main' && extraList.length < maxExtras) {
-      rows.splice(7, 0, {
+      rows.splice(4, 0, {
         kind: 'action', label: '🐾 再添一只', fn: () => {
           const c = config.getSnapshot()
           if (c.extraPets.length >= c.maxPets - 1) return
@@ -1547,7 +1553,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       })
     }
     if (petId !== 'main') {
-      rows.splice(7, 0, {
+      rows.splice(4, 0, {
         kind: 'action', label: '🗑 送走这只', fn: () => {
           const c = config.getSnapshot()
           config.set({ extraPets: c.extraPets.filter((p) => p.id !== petId) })
@@ -1569,12 +1575,35 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         sw.appendChild(knob)
         row.appendChild(sw)
       }
+      if (r.kind === 'slider') {
+        // 滑杆行：拖动实时预览，change/菜单关闭时落盘（行点击不收菜单）
+        const wrap = document.createElement('span')
+        wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px'
+        const input = document.createElement('input')
+        input.type = 'range'
+        input.min = String(r.min)
+        input.max = String(r.max)
+        input.value = String(r.value)
+        input.style.cssText = 'width:84px;accent-color:#3b82f6'
+        const val = document.createElement('span')
+        val.style.cssText = 'font-size:11px;color:#a1a1aa;min-width:28px;text-align:right'
+        val.textContent = `${r.value}°`
+        input.addEventListener('input', () => {
+          val.textContent = `${input.value}°`
+          r.preview(Number(input.value))
+        })
+        input.addEventListener('change', () => { r.fn(Number(input.value)) })
+        wrap.appendChild(input)
+        wrap.appendChild(val)
+        row.appendChild(wrap)
+      }
       row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,.12)' }
       row.onmouseleave = () => { row.style.background = '' }
       row.onclick = () => {
+        if (r.kind === 'slider') return // 滑杆交互在 input 上，点行不动作不收菜单
         r.fn()
         if (r.kind === 'action') {
-          menu.style.display = 'none'
+          closeMenu()
         } else {
           rebuildMenu() // 开关/循环项：就地重建刷新，菜单不收起
         }
@@ -1582,15 +1611,32 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       menu.appendChild(row)
     }
   }
+  /** 色相预览未落盘的收尾：拖过没松 change 就关菜单时，按当前预览值落盘（所见即所得）。 */
+  const commitHuePreview = (): void => {
+    if (petHue !== myHue(config.getSnapshot())) setMyHue(petHue)
+  }
+  const closeMenu = (): void => {
+    if (menu.style.display === 'block') commitHuePreview()
+    menu.style.display = 'none'
+  }
+  /** 「⚙️ 设置」：宿主给了面板通道就开悬浮设置面板，否则气泡指路（demo/旧宿主）。 */
+  const openSettings = (): void => {
+    if (assets.onOpenSettings !== undefined) {
+      assets.onOpenSettings()
+      return
+    }
+    showBubble('去 设置 → 插件配置 → 牛来桌宠', 3200, true)
+  }
   root.addEventListener('contextmenu', (ev) => {
     ev.preventDefault()
     about.style.display = 'none'
     rebuildMenu()
-    menu.style.display = menu.style.display === 'block' ? 'none' : 'block'
+    if (menu.style.display === 'block') closeMenu()
+    else menu.style.display = 'block'
   })
   document.addEventListener('pointerdown', (ev) => {
     if (!root.contains(ev.target as Node)) {
-      menu.style.display = 'none'
+      closeMenu()
       about.style.display = 'none'
     }
   })

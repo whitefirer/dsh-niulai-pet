@@ -236,3 +236,15 @@ assets/ 与 lib/ 均入库。
   flight 改朝向时记得同步 `--face`。
 - 候选音频段有加速变调（音调升高失真），用基频甄别（pitch.py：800-889Hz
   为正常奶声，516-552Hz 为变调段，已弃用）。
+- **自渲染 React 面板（悬浮设置面板）**：宿主没有「打开设置页并定位」API
+  （SPA 无路由、URL 不变），`mountCardPanel`（card.tsx）把同一个 NiulaiCard
+  用 createRoot 渲进桌宠旁浮层。react-dom 打包进 bundle（只 external
+  `react`/`react/jsx-runtime`，单 react 实例多 root 合法）；**build.mjs 必须
+  define `process.env.NODE_ENV=production`**——否则吃进 dev 版 react-dom，其
+  act() 环境检测读平台 prod react 没有的 `ReactCurrentActQueue.current` 直接炸
+  （isConcurrentActEnvironment TypeError，踩过）。t 座/uSES hook 在
+  mountCardPanel 里手工适配，scope 伪装常驻 ready/writable。
+- 右键菜单（2026-08-24 瘦身）只留高频：声音/气泡/🌈色相滑杆/皮肤/动作/设置/
+  关于；低频配置全归设置面板。滑杆行拖动只预览（直接改 petHue+applyImgFilter），
+  change 或菜单关闭（closeMenu→commitHuePreview）才落盘 ConfigStore——拖动中
+  写 store 会触发菜单就地重建、input 被销毁断拖。
