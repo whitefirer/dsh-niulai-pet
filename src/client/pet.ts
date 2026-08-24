@@ -950,13 +950,19 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const n = Math.random() < 0.5 ? 2 : 3
     // 克隆身高按面积守恒：原高/√n（2 只≈71%、3 只≈58%）——看上去合体后正好还原大史莱姆
     const miniH = Math.max(36, Math.round(petH / Math.sqrt(n)))
+    // 克隆滤镜与主宠镜像一致（变色/透明度；睡眠压暗分裂前已唤醒不叠）+ 自己的小投影
+    const cloneFilterParts: string[] = []
+    if (petHue !== 0) cloneFilterParts.push(`hue-rotate(${petHue}deg)`)
+    if (petOpacity !== 100) cloneFilterParts.push(`opacity(${petOpacity}%)`)
+    cloneFilterParts.push('drop-shadow(0 2px 3px rgba(0,0,0,.3))')
+    const cloneFilter = cloneFilterParts.join(' ')
     const scatterDur = 2100
     for (let i = 0; i < n; i++) {
       const el = document.createElement('div')
       el.style.cssText = `position:fixed;left:${cx - miniH / 2}px;top:${bottom - miniH}px;z-index:${z};pointer-events:none;transform-origin:50% 100%`
       const im = document.createElement('img')
       im.src = cur().image
-      im.style.cssText = `height:${miniH}px;display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.3))`
+      im.style.cssText = `height:${miniH}px;display:block;filter:${cloneFilter}`
       el.appendChild(im)
       el.style.visibility = 'hidden' // 到点再显形（逐个蹦出，不一窝蜂）
       document.body.appendChild(el)
