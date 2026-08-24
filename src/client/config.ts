@@ -62,11 +62,13 @@ export interface PetConfig {
   /** 离地高度 px（0-300，默认 0=贴视口底；全局共享）。 */
   groundOffset: number
   /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小/色相/语录按只存，行为配置全局共享）。上限 = maxPets-1。 */
-  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }>
+  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; opacity?: number; quips?: string[] }>
   /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
   petSize: number
   /** 色相旋转角度（0-360，默认 0=原色；主宠）。 */
   petHue: number
+  /** 不透明度 %（20-100，默认 100；主宠）。 */
+  petOpacity: number
   /** 物理碰撞开关（多只时互相挤/弹飞）。 */
   physics: boolean
   /** 隐藏全部桌宠（默认关；打开后所有实例隐没，从设置卡片喊回来）。 */
@@ -111,9 +113,10 @@ export interface Persisted {
   sleepEnabled?: boolean
   walkEnabled?: boolean
   groundOffset?: number
-  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }>
+  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; opacity?: number; quips?: string[] }>
   petSize?: number
   petHue?: number
+  petOpacity?: number
   physics?: boolean
   hidden?: boolean
   maxPets?: number
@@ -313,7 +316,7 @@ export class ConfigStore {
     const legacy = loadPersisted(this.skinIds, this.defaultSkin)
     const writes: Array<[string, unknown]> = []
     const cfg = this.fromPersisted(legacy) // 复用校验（类型/范围/皮肤白名单）
-    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'customSoundOn', 'customSound', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'walkEnabled', 'groundOffset', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'petHue', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
+    for (const field of ['muted', 'volume', 'shoutOnDone', 'shoutCount', 'customSoundOn', 'customSound', 'talkative', 'skin', 'quips', 'doneDelaySec', 'shoutLoop', 'replyNiulai', 'sleepEnabled', 'walkEnabled', 'groundOffset', 'extraPets', 'physics', 'hidden', 'maxPets', 'petSize', 'petHue', 'petOpacity', 'voiceControl', 'micDeviceId', 'voiceThreshold', 'voiceTemplate', 'voiceEngine', 'voiceKeywords', 'micGain'] as const) {
       if (legacy[field] !== undefined && !(isRecord(user) && field in user)) {
         writes.push([field, cfg[field]])
       }
@@ -390,6 +393,8 @@ export class ConfigStore {
         ? Math.min(200, Math.max(72, p.petSize)) : 120,
       petHue: typeof p.petHue === 'number' && Number.isInteger(p.petHue)
         ? Math.min(360, Math.max(0, p.petHue)) : 0,
+      petOpacity: typeof p.petOpacity === 'number' && Number.isInteger(p.petOpacity)
+        ? Math.min(100, Math.max(20, p.petOpacity)) : 100,
       extraPets: this.sanitizeExtraPets(p.extraPets, (typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
         ? Math.min(15, Math.max(1, p.maxPets)) : 10) - 1),
       voiceControl: p.voiceControl === true,
@@ -429,6 +434,7 @@ export class ConfigStore {
       maxPets: typeof r.maxPets === 'number' ? r.maxPets : undefined,
       petSize: typeof r.petSize === 'number' ? r.petSize : undefined,
       petHue: typeof r.petHue === 'number' ? r.petHue : undefined,
+      petOpacity: typeof r.petOpacity === 'number' ? r.petOpacity : undefined,
       extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }> : undefined,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
@@ -464,6 +470,7 @@ export class ConfigStore {
         skin: this.validSkin(typeof p.skin === 'string' ? p.skin : undefined),
         ...(typeof p.size === 'number' && Number.isInteger(p.size) && p.size >= 72 && p.size <= 200 ? { size: p.size } : {}),
         ...(typeof p.hue === 'number' && Number.isInteger(p.hue) && p.hue >= 0 && p.hue <= 360 ? { hue: p.hue } : {}),
+        ...(typeof p.opacity === 'number' && Number.isInteger(p.opacity) && p.opacity >= 20 && p.opacity <= 100 ? { opacity: p.opacity } : {}),
         ...(quips.length > 0 ? { quips } : {}),
       })
       if (out.length >= cap) break

@@ -344,6 +344,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 本宠色相：主宠读 petHue；额外表读各自条目 hue（缺省 0=原色）。 */
   const myHue = (c: PetConfig): number =>
     petId === 'main' ? c.petHue : (c.extraPets.find((p) => p.id === petId)?.hue ?? 0)
+  /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省 100）。 */
+  const myOpacity = (c: PetConfig): number =>
+    petId === 'main' ? c.petOpacity : (c.extraPets.find((p) => p.id === petId)?.opacity ?? 100)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
    *  换皮肤时大小落到新皮肤的默认（用户之后再调优先；皮肤高矮是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
@@ -363,6 +366,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
     config.set({ extraPets: config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, hue: v } : p) })
   }
+  /** 写本宠不透明度：主宠写 petOpacity；额外表读-改-写自己的条目。 */
+  const setMyOpacity = (v: number): void => {
+    if (petId === 'main') {
+      config.set({ petOpacity: v })
+      return
+    }
+    config.set({ extraPets: config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, opacity: v } : p) })
+  }
   /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。
    *  展示性挂载（forceSkin，demo 全家福）不读不写位置记忆——列队位置由 demo 排。 */
   const demoDoll = assets.forceSkin !== undefined
@@ -380,6 +391,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const initCfg = config.getSnapshot()
   let petH = mySize(initCfg)
   let petHue = myHue(initCfg)
+  let petOpacity = myOpacity(initCfg)
   /** 睡眠压暗态（applyImgFilter 合成用）。 */
   let dimmed = false
   let skin: SkinDef = findSkin(mySkinId(initCfg))
@@ -436,10 +448,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
-  /** 合成 img 滤镜：色相旋转 + 睡眠压暗（sleepFor/wakeFromSleep 与 syncConfig 共用）。 */
+  /** 合成 img 滤镜：色相旋转 + 不透明度 + 睡眠压暗（sleepFor/wakeFromSleep 与 syncConfig 共用）。 */
   const applyImgFilter = (): void => {
     const parts: string[] = []
     if (petHue !== 0) parts.push(`hue-rotate(${petHue}deg)`)
+    if (petOpacity !== 100) parts.push(`opacity(${petOpacity}%)`)
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
   }
@@ -1533,7 +1546,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     | { kind: 'bool'; label: string; on: boolean; fn: () => void }
     | { kind: 'cycle'; label: string; value: string; fn: () => void }
     | { kind: 'action'; label: string; fn: () => void }
-    | { kind: 'slider'; label: string; value: number; min: number; max: number; fn: (v: number) => void; preview: (v: number) => void }
+    | { kind: 'slider'; label: string; value: number; min: number; max: number; unit: string; fn: (v: number) => void; preview: (v: number) => void }
 
   /** 菜单即乐园：只留高频开关/动作；低频配置（完成喊几声/打盹/碰撞/动作绑定等）全归设置面板。 */
   const rebuildMenu = (): void => {
@@ -1546,9 +1559,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       {
-        kind: 'slider', label: '🌈 色相', value: petHue, min: 0, max: 360,
+        kind: 'slider', label: '🌈 色相', value: petHue, min: 0, max: 360, unit: '°',
         fn: setMyHue,
         preview: (v) => { petHue = v; applyImgFilter() },
+      },
+      {
+        kind: 'slider', label: '🌫 透明度', value: petOpacity, min: 20, max: 100, unit: '%',
+        fn: setMyOpacity,
+        preview: (v) => { petOpacity = v; applyImgFilter() },
       },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
@@ -1608,9 +1626,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         input.style.cssText = 'width:84px;accent-color:#3b82f6'
         const val = document.createElement('span')
         val.style.cssText = 'font-size:11px;color:#a1a1aa;min-width:28px;text-align:right'
-        val.textContent = `${r.value}°`
+        val.textContent = `${r.value}${r.unit}`
         input.addEventListener('input', () => {
-          val.textContent = `${input.value}°`
+          val.textContent = `${input.value}${r.unit}`
           r.preview(Number(input.value))
         })
         input.addEventListener('change', () => { r.fn(Number(input.value)) })
@@ -1632,12 +1650,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       menu.appendChild(row)
     }
   }
-  /** 色相预览未落盘的收尾：拖过没松 change 就关菜单时，按当前预览值落盘（所见即所得）。 */
-  const commitHuePreview = (): void => {
+  /** 滑杆预览未落盘的收尾：拖过没松 change 就关菜单时，按当前预览值落盘（所见即所得）。 */
+  const commitSliderPreview = (): void => {
     if (petHue !== myHue(config.getSnapshot())) setMyHue(petHue)
+    if (petOpacity !== myOpacity(config.getSnapshot())) setMyOpacity(petOpacity)
   }
   const closeMenu = (): void => {
-    if (menu.style.display === 'block') commitHuePreview()
+    if (menu.style.display === 'block') commitSliderPreview()
     menu.style.display = 'none'
   }
   /** 「⚙️ 设置」：宿主给了面板通道就开悬浮设置面板，否则气泡指路（demo/旧宿主）。 */
@@ -1765,6 +1784,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const newHue = myHue(c)
     if (newHue !== petHue) {
       petHue = newHue
+      applyImgFilter()
+    }
+    const newOpacity = myOpacity(c)
+    if (newOpacity !== petOpacity) {
+      petOpacity = newOpacity
       applyImgFilter()
     }
   }

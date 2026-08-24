@@ -127,6 +127,8 @@ export const Config = z.object({
     size: z.number().step(1).min(72).max(200).default(120),
     /** 本只色相旋转角度（0-360，默认 0=原色）。 */
     hue: z.number().step(1).min(0).max(360).default(0),
+    /** 本只不透明度 %（20-100，默认 100）。 */
+    opacity: z.number().step(1).min(20).max(100).default(100),
     /** 本只专属唠叨语录（空 = 跟随全局 quips 链：全局自定义 → 内置池）。 */
     quips: z.array(z.string()).default([]),
   })).default([]),
@@ -134,6 +136,8 @@ export const Config = z.object({
   petSize: z.number().step(1).min(72).max(200).default(120),
   /** 色相旋转角度（0-360，默认 0=原色；主宠）。 */
   petHue: z.number().step(1).min(0).max(360).default(0),
+  /** 不透明度 %（20-100，默认 100；主宠）。 */
+  petOpacity: z.number().step(1).min(20).max(100).default(100),
   /** 物理碰撞：多只桌宠互相挤/弹飞（默认关）。 */
   physics: z.boolean().default(false),
   /** 隐藏全部桌宠（默认关；开着时从设置卡片喊回来）。 */
