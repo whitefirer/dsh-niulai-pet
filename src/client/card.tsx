@@ -1253,6 +1253,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
             {tab === 'global'
               ? (
                 <>
+            <Row label={t('hideAll')}>
+              <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
+            </Row>
             <Row label={t('sound')}>
               <Switch on={!cfg.muted} disabled={disabled} label={t('sound')} onChange={(on) => { props.set({ muted: !on }) }} />
             </Row>
@@ -1294,9 +1297,6 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
-            </Row>
-            <Row label={t('hideAll')}>
-              <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
             </Row>
                 </>
               )
