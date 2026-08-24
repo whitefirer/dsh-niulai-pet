@@ -431,6 +431,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let walkOn = initCfg.walkEnabled
   let groundOff = initCfg.groundOffset
   let physicsOn = initCfg.physics
+  let heatOn = initCfg.heatEnabled
   let hiddenAll = initCfg.hidden
   masterVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
@@ -492,27 +493,35 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
     if (effHue !== 0) parts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) parts.push(`opacity(${petOpacity}%)`)
-    if (heat > 0.02) {
-      // 红温：轻度暖化 + 红色辉光（真变红靠 heatLayer 剪影层，见上）
-      parts.push(`sepia(${(0.25 * heat).toFixed(2)})`)
-      parts.push(`saturate(${(1 + 0.8 * heat).toFixed(2)})`)
-      parts.push(`drop-shadow(0 0 ${Math.round(4 + heat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * heat).toFixed(2)}))`)
+    // 忍耐期：heat≤0.45 不显红（前 3 戳像在忍），之后线性到满红
+    const dHeat = Math.max(0, (heat - 0.45) / 0.55)
+    if (dHeat > 0.02) {
+      // 红温：轻度暖化 + 红色辉光（真变红靠 heatLayer 剪影层，见下）
+      parts.push(`sepia(${(0.25 * dHeat).toFixed(2)})`)
+      parts.push(`saturate(${(1 + 0.8 * dHeat).toFixed(2)})`)
+      parts.push(`drop-shadow(0 0 ${Math.round(4 + dHeat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * dHeat).toFixed(2)}))`)
     }
     if (dimmed) parts.push('brightness(.82)')
     img.style.filter = parts.join(' ')
-    // 蒙版必须与透明度同帧装上——否则第一戳后会闪一整块没剪形的红矩形（踩过：
-    // 蒙版只在 90ms 拍里跟，透明度先到 = 原地瞬间红色残影）
-    if (heat > 0.02) {
+    // 蒙版必须与透明度同帧装上（否则闪整块没剪形的红板），且几何要跟随 img 实时
+    // 高/左偏（shoutAnim 倒地宽帧会改 img.height/left——不跟就留一个站高红影子在原地）
+    if (dHeat > 0.02) {
       const maskSrc = `url("${img.src}")`
       if (heatLayer.style.webkitMaskImage !== maskSrc) {
         heatLayer.style.webkitMaskImage = maskSrc
         heatLayer.style.maskImage = maskSrc
       }
+      const mh = img.style.height || '100%'
+      const ml = img.style.left || '0px'
+      heatLayer.style.webkitMaskSize = `auto ${mh}`
+      heatLayer.style.maskSize = `auto ${mh}`
+      heatLayer.style.webkitMaskPosition = `${ml} bottom`
+      heatLayer.style.maskPosition = `${ml} bottom`
     }
-    heatLayer.style.opacity = String(Math.min(0.5, heat * 0.55).toFixed(2))
+    heatLayer.style.opacity = String(Math.min(0.5, dHeat * 0.55).toFixed(2))
   }
   applyImgFilter()
-  // 流光相位推进 + 红温消退/剪影跟随共用一拍：90ms；红温 ~15s 才凉透一半（长演出角色也看得见红）
+  // 流光相位推进 + 红温消退共用一拍：90ms；红温 ~15s 才凉透一半（长演出角色也看得见红）
   const cycleTimer = window.setInterval(() => {
     if (destroyed) return
     if (hueCycleOn) {
@@ -548,10 +557,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     ).finished.catch(() => {})
     raging = false
   }
-  /** 积火气；返回 true = 这一戳把火气点爆了（调用方只演爆发，不演正常戳反应）。 */
+  /** 积火气（+0.15/戳，快戳 7 下点爆；heat≤0.45 为忍耐期不显红）；返回 true = 点爆了。 */
   const addHeat = (): boolean => {
     if (Date.now() < rageCooldownUntil) return false // 气头上：戳也白戳
-    heat = Math.min(1, heat + 0.3)
+    heat = Math.min(1, heat + 0.15)
     applyImgFilter()
     if (heat >= 1 && !raging) { void rage(); return true }
     return false
@@ -1039,10 +1048,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const effHue = hueCycleOn ? Math.round((petHue + cyclePhase) % 360) : petHue
     if (effHue !== 0) cloneFilterParts.push(`hue-rotate(${effHue}deg)`)
     if (petOpacity !== 100) cloneFilterParts.push(`opacity(${petOpacity}%)`)
-    if (heat > 0.02) {
-      cloneFilterParts.push(`sepia(${(0.25 * heat).toFixed(2)})`)
-      cloneFilterParts.push(`saturate(${(1 + 0.8 * heat).toFixed(2)})`)
-      cloneFilterParts.push(`drop-shadow(0 0 ${Math.round(4 + heat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * heat).toFixed(2)}))`)
+    const dHeat = Math.max(0, (heat - 0.45) / 0.55)
+    if (dHeat > 0.02) {
+      cloneFilterParts.push(`sepia(${(0.25 * dHeat).toFixed(2)})`)
+      cloneFilterParts.push(`saturate(${(1 + 0.8 * dHeat).toFixed(2)})`)
+      cloneFilterParts.push(`drop-shadow(0 0 ${Math.round(4 + dHeat * 12)}px rgba(255,70,45,${(0.3 + 0.55 * dHeat).toFixed(2)}))`)
     }
     cloneFilterParts.push('drop-shadow(0 2px 3px rgba(0,0,0,.3))')
     const cloneFilter = cloneFilterParts.join(' ')
@@ -1564,7 +1574,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed || raging) return
     if (Date.now() < rageCooldownUntil) return // 气头上不理人
-    if (addHeat()) return
+    if (heatOn && addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
     const wasLooping = stopShoutLoop(true, '戳一下')
@@ -1958,6 +1968,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     groundOff = c.groundOffset
     root.style.bottom = `${groundOff}px` // 离地高度（全局共享，各实例同步）
     physicsOn = c.physics
+    heatOn = c.heatEnabled
+    if (!heatOn && heat > 0) { heat = 0; applyImgFilter() } // 关红温：立即褪掉现有红
     hiddenAll = c.hidden
     root.style.display = c.hidden ? 'none' : '' // 隐藏全部（配置全局共享，所有实例同步隐没）
     syncPhysics()

@@ -73,6 +73,8 @@ export interface PetConfig {
   petHueCycle: boolean
   /** 物理碰撞开关（多只时互相挤/弹飞）。 */
   physics: boolean
+  /** 连戳红温（默认开；关掉后戳不积火不变红）。 */
+  heatEnabled: boolean
   /** 隐藏全部桌宠（默认关；打开后所有实例隐没，从设置卡片喊回来）。 */
   hidden: boolean
   /** 桌宠数量上限（连主宠，1-15，默认 10）。 */
@@ -121,6 +123,7 @@ export interface Persisted {
   petOpacity?: number
   petHueCycle?: boolean
   physics?: boolean
+  heatEnabled?: boolean
   hidden?: boolean
   maxPets?: number
   /** 额外表的位置 x（按设备，petId → x）。主宠仍用 x 键。 */
@@ -389,6 +392,7 @@ export class ConfigStore {
       groundOffset: typeof p.groundOffset === 'number' && Number.isInteger(p.groundOffset)
         ? Math.min(300, Math.max(0, p.groundOffset)) : 0,
       physics: p.physics === true,
+      heatEnabled: p.heatEnabled !== false, // 连戳红温默认开
       hidden: p.hidden === true,
       maxPets: typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
         ? Math.min(15, Math.max(1, p.maxPets)) : 10,
@@ -434,6 +438,7 @@ export class ConfigStore {
       walkEnabled: r.walkEnabled !== false,
       groundOffset: typeof r.groundOffset === 'number' ? r.groundOffset : undefined,
       physics: r.physics === true,
+      heatEnabled: r.heatEnabled !== false,
       hidden: r.hidden === true,
       maxPets: typeof r.maxPets === 'number' ? r.maxPets : undefined,
       petSize: typeof r.petSize === 'number' ? r.petSize : undefined,

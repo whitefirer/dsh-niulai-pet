@@ -144,6 +144,8 @@ export const Config = z.object({
   petHueCycle: z.boolean().default(false),
   /** 物理碰撞：多只桌宠互相挤/弹飞（默认关）。 */
   physics: z.boolean().default(false),
+  /** 连戳红温（默认开；关掉后戳不积火不变红）。 */
+  heatEnabled: z.boolean().default(true),
   /** 隐藏全部桌宠（默认关；开着时从设置卡片喊回来）。 */
   hidden: z.boolean().default(false),
   /** 桌宠数量上限（连主宠，1-15，默认 10）。 */

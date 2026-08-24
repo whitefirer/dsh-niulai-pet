@@ -89,6 +89,7 @@ const zh = {
   voiceGranted: '状态：已授权（仅循环喊期间开麦）',
   voiceIdle: '状态：未授权',
   talkative: '气泡',
+  heatEnabled: '连戳红温',
   hideAll: '隐藏全部桌宠',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
@@ -201,6 +202,7 @@ const en: Record<keyof typeof zh, string> = {
   voiceGranted: 'Status: granted (mic is live only while loop-shouting)',
   voiceIdle: 'Status: not granted',
   talkative: 'Bubbles',
+  heatEnabled: 'Poke heat-up',
   hideAll: 'Hide all pets',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
@@ -1297,6 +1299,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
             </Row>
             <Row label={t('talkative')}>
               <Switch on={cfg.talkative} disabled={disabled} label={t('talkative')} onChange={(on) => { props.set({ talkative: on }) }} />
+            </Row>
+            <Row label={t('heatEnabled')}>
+              <Switch on={cfg.heatEnabled} disabled={disabled} label={t('heatEnabled')} onChange={(on) => { props.set({ heatEnabled: on }) }} />
             </Row>
                 </>
               )
