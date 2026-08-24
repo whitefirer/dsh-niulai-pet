@@ -74,6 +74,8 @@ my-pet.nlpack.zip          # 普通 zip，建议后缀 .nlpack.zip
 | `images.shout` | 张嘴图（喊叫嘴型；与 shoutAnim 二选一） |
 | `images.fly` / `flyShout` | fly 动作图 / 飞行张嘴图 |
 | `images.spout` | breach 跃出水面弧顶特效图 |
+| `images.lampA` / `lampB` | 警灯甲乙帧（成对出现，待机 480ms 交替闪，如警车红蓝警灯；配了它常态帧即灯帧） |
+| `images.roll` | 卷形图（roll 动作专用：犰狳卷成球滚动时换成它，绕重心轮转） |
 | `shoutAnim` | 喊叫演出帧：`[{"src":"anim.webp","at":0}]`；at 为 0~1 升序，`rock:true` 附加倒地摇摆。**推荐单个动画 webp**（at:0 一帧到底，原生播放最平滑） |
 | `signature` | 签名动作（不能是 signature/random） |
 | `shoutBubble` | 喊叫气泡文案 |
@@ -87,6 +89,7 @@ my-pet.nlpack.zip          # 普通 zip，建议后缀 .nlpack.zip
 | `driveStyle` | drive 演出风格：`normal` 直开 / `wheelie` 抬前轮 / `wiggle` 摇头晃脑 / `random` 每次随机，缺省 normal |
 | `doneVoice` | 完成路径专属合成音色（如 `siren` 警笛）：戳/表演仍走 voice，完成庆祝走它，缺省无 |
 | `doneSounds` | 完成路径专属采样（mp3 路径数组，优先级低于 doneVoice），缺省无 |
+| `halo` | `true` 完成庆祝时光环（幽灵系配置；任务完成时头顶金环浮现 3.6s），缺省无 |
 
 ### 可绑定动作（闭集）
 

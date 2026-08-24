@@ -61,6 +61,11 @@ export interface SkinDef {
   imageSpout?: string
   /** 专睡图（可选；配了它打盹换图不压扁——横躺姿态压扁反而怪）。 */
   imageSleep?: string
+  /** 警灯甲/乙帧（可选，成对出现；待机时 480ms 交替闪，如警车红蓝警灯）。 */
+  imageLampA?: string
+  imageLampB?: string
+  /** 卷形图（可选；roll 动作专用——犰狳卷成球滚动时换成它，车轮式旋转）。 */
+  imageRoll?: string
   voice: VoiceName
   /** voice=mama 时的喊声 mp3（dataurl）若干。 */
   sounds?: string[]
@@ -88,6 +93,8 @@ export interface SkinDef {
   doneSounds?: string[]
   /** 完成路径专属合成音色（如 'siren' 警笛；优先级 doneVoice → doneSounds → 普通叫声）。 */
   doneVoice?: VoiceName
+  /** 完成庆祝光环（可选；幽灵系配置它，任务完成时头顶金环浮现 3.6s；缺省无）。 */
+  halo?: boolean
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -419,23 +426,38 @@ function synthMotor(ctx: AudioContext): void {
   make('sawtooth', 65, 150, 0.12, 0.8)
 }
 
-/** 警笛：双音上下交替两轮（高-低-高-低），呜呜呜。 */
+/** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
 function synthSiren(ctx: AudioContext): void {
   const t0 = ctx.currentTime
-  for (let round = 0; round < 2; round++) {
-    const a = t0 + round * 0.9
-    for (const [f, off] of [[640, 0], [460, 0.45]] as Array<[number, number]>) {
-      const osc = ctx.createOscillator()
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(f, a + off)
-      const g = ctx.createGain()
-      g.gain.setValueAtTime(0.0001, a + off)
-      g.gain.exponentialRampToValueAtTime(0.14, a + off + 0.05)
-      g.gain.exponentialRampToValueAtTime(0.0001, a + off + 0.42)
-      osc.connect(g); g.connect(volDest(ctx))
-      osc.start(a + off); osc.stop(a + off + 0.45)
-    }
+  const dur = 3.6
+  // 频率滑行曲线：三角波 380↔680（setValueCurveAtTime 采样曲线，避免锯齿感）
+  const pts = 120
+  const curve = new Float32Array(pts)
+  for (let i = 0; i < pts; i++) {
+    const ph = (i / (pts - 1)) * 6 * Math.PI // 3 个上下周期
+    curve[i] = 530 + 150 * Math.sin(ph - Math.PI / 2)
   }
+  const osc = ctx.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(530, t0)
+  osc.frequency.setValueCurveAtTime(curve, t0, dur)
+  const lfo = ctx.createOscillator()
+  lfo.frequency.value = 8
+  const lfoGain = ctx.createGain()
+  lfoGain.gain.value = 6 // 轻微颤抖更像警笛啸声
+  lfo.connect(lfoGain)
+  lfoGain.connect(osc.frequency)
+  const lp = ctx.createBiquadFilter()
+  lp.type = 'lowpass'
+  lp.frequency.value = 2400
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.08)
+  g.gain.setValueAtTime(0.15, t0 + dur - 0.25)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
+  osc.start(t0); lfo.start(t0)
+  osc.stop(t0 + dur + 0.05); lfo.stop(t0 + dur + 0.05)
 }
 
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
@@ -561,7 +583,21 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let busyInfo: { since: number; label: string } | null = null
 
   const cur = (): SkinDef => skin
-  const skinIdle = (): string => skin.image
+  /** 喊声播放中（含尾音保持）：sleep 压扁变暗、眨眼都要让位。声明提前：skinIdle 在挂载期被调用。 */
+  let shouting = false
+  /** 循环喊间隙：演出帧还在滚放——眨眼/sleep 同样不许碰 img.src。声明提前同上。 */
+  let animRolling = false
+  /** 卷形滚动中（犰狳 roll 换球图；mouthShut 让位用）。 */
+  let rollingBall = false
+  /** 警灯相位：有 lampA/lampB 的皮肤（警车）待机交替闪。 */
+  let lampOn = false
+  const skinIdle = (): string => {
+    const s = skin
+    if (s.imageLampA !== undefined && s.imageLampB !== undefined && !shouting && !animRolling) {
+      return lampOn ? s.imageLampA : s.imageLampB
+    }
+    return s.image
+  }
   const skinShout = (): string => skin.imageShout ?? skin.image
   // 趴睡常态皮肤（赛博猫）：常态图就是专睡图，喊叫切站立图
   const isLaydown = (): boolean => {
@@ -648,6 +684,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       }
     }
   }, 90)
+  // 警灯交替：有 lampA/lampB 的皮肤（警车）480ms 翻相位；喊叫/演出期不动 src
+  const lampTimer = window.setInterval(() => {
+    if (destroyed) return
+    const s = cur()
+    if (s.imageLampA === undefined || s.imageLampB === undefined) return
+    lampOn = !lampOn
+    if ((mood === 'idle' || mood === 'walk') && !shouting && !animRolling) {
+      img.src = skinIdle()
+    }
+  }, 480)
 
   // ---- 连戳红温：连续戳积累火气（每戳 +0.3，平时缓慢消退），满格爆发一次：
   // 哼一句 + 扭头背过去 + 4s 气头冷却（期间戳也白戳、不积新火）。
@@ -806,6 +852,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       }
       preloadW(s.image)
       if (s.imageSleep !== undefined) preloadW(s.imageSleep)
+      if (s.imageLampA !== undefined) preloadW(s.imageLampA)
+      if (s.imageLampB !== undefined) preloadW(s.imageLampB)
+      if (s.imageRoll !== undefined) preloadW(s.imageRoll)
       for (const f of s.shoutAnim ?? []) preloadW(f.src)
     }
   }
@@ -826,7 +875,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (v === 'crackle') { synthCrackle(ctx); return 700 }
     if (v === 'engine') { synthEngine(ctx); return 950 }
     if (v === 'motor') { synthMotor(ctx); return 800 }
-    if (v === 'siren') { synthSiren(ctx); return 1800 }
+    if (v === 'siren') { synthSiren(ctx); return 3600 }
     synthSqueak(ctx)
     return 450
   }
@@ -923,8 +972,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // 嘴型：「妈-妈~~」两个音节 = 开-合-开，长尾音是开口音——保持张开到声止再闭。
   // 飞行中若皮肤有飞行张嘴帧（imageFlyShout）则照样开合。
   let mouthTimers: number[] = []
-  let shouting = false // 喊声播放中（含尾音保持）：sleep 压扁变暗、眨眼都要让位
-  let animRolling = false // 循环喊间隙：演出帧还在滚放——眨眼/sleep 同样不许碰 img.src
   let lingerTimer = 0 // 趴睡皮肤喊完再站一会儿的归位定时器
   const mouthOpen = (): void => {
     if (cur().imageShout === undefined) return
@@ -933,6 +980,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       : skinShout()
   }
   const mouthShut = (): void => {
+    if (rollingBall) return // 卷形滚动中：嘴型复位别碰球图（否则喊叫计时器把球图踩回站姿图）
     img.src = mood === 'fly' ? (cur().imageFly ?? cur().image) : skinIdle()
   }
   // 喊叫动画（shoutAnim 皮肤）：按时间线切帧，rock 帧附加倒地摇摆
@@ -1135,6 +1183,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 熊猫翻滚：绕重心滚 360° 并向朝向平移一段。 */
   const roll = async (): Promise<void> => {
     breathe.cancel() // 内联 transform 与 pause 态的 breathe 叠加会被顶掉，必须 cancel
+    const hadBallImg = cur().imageRoll !== undefined
+    rollingBall = hadBallImg
+    if (hadBallImg) img.src = cur().imageRoll as string // 犰狳卷成球：换卷形图再轮转
     const from = x
     let target = from + 210 * facing
     target = Math.min(Math.max(0, target), window.innerWidth - 70)
@@ -1158,6 +1209,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     })
     img.style.transform = ''
     img.style.transformOrigin = '50% 100%'
+    if (hadBallImg) { img.src = skinIdle(); rollingBall = false } // 球图用完换回常态（警灯皮走 skinIdle 拿到当前灯相位）
     applyX()
     if (!destroyed) breathe.play()
   }
@@ -1725,7 +1777,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const fireCelebrate = (): void => {
     if (destroyed) return
     celebrateGen++ // 新一轮庆祝：旧连喊链（若有）代际不符自然死
-    showHalo() // 完成光环：本轮庆祝全程浮现（通用，皮肤无关）
+    if (cur().halo === true) showHalo() // 完成光环：仅皮肤声明 halo 的角色（幽灵系）
     if (shoutOnDone && !muted) {
       if (shoutLoopOn) {
         // 循环模式：连喊几声对循环无意义，跳过接龙直接布防循环（第一声 0.6s 后）
@@ -2342,6 +2394,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       window.clearTimeout(chatterTimer)
       window.clearTimeout(shoutLoopTimer)
       window.clearInterval(cycleTimer)
+      window.clearInterval(lampTimer)
       window.clearTimeout(bubbleTimer)
       window.clearTimeout(blinkTimer)
       window.clearTimeout(blinkResetTimer)

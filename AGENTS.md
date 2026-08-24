@@ -195,14 +195,20 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 镜像父级内 rotate 同样不乘 dir（动车类继承铁律#2）。随机池剔除 drive
 （牛来随机抽到开车很出戏）；wheelie 前轮抬统一 rotate(-24deg)。
 
-**完成庆祝三件套**：`fireCelebrate` 现在必发**完成光环**（金色光圈浮现头顶，
-3.6s，通用皮肤无关；气泡 bottom 已抬到 103%+30px 给光环让位——同一位置
+**完成庆祝三件套**：`fireCelebrate` 在皮肤声明 `halo:true`（幽灵系）时发**完成光环**
+（金色光圈浮现头顶，3.6s；气泡 bottom 已抬到 103%+30px 给光环让位——同一位置
 气泡会在层级上盖掉环，踩过）；
 完成叫声走 `playNotify` 优先级：自定义提示音 → 皮肤 `doneVoice`（合成预设，
 警车 'siren'）→ 皮肤 `doneSounds`（采样，todo）→ 普通叫声；
 shoutAnim 皮肤的「帧演出即本体」让位逻辑在 `animAllows`——**先解析
 signature 占位符再判**（否则皮名下的 split 被吞，火史莱姆戳=喷火+分裂
 就是翻这坑），split 例外放行（分裂自身就是完整演出）。
+
+**警灯交替 / 卷球滚动**：警车类皮肤配 `images.lampA/lampB` 后，lampTimer
+480ms 翻相位，`skinIdle()` 返回当前相位灯帧（喊叫/演出期不动 src）；
+犰狳类配 `images.roll` 后，roll 动作换球图绕重心轮转——**mouthShut 必须
+给 rollingBall 让位**（喊叫计时器会在 240ms 处把 src 踩回站姿图，球图瞬间
+消失，踩过；先有 rotate 无球图就是这么来的）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，

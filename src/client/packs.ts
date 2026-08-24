@@ -88,6 +88,11 @@ export interface PackSkinDef {
     spout?: string
     /** 专睡图（打盹换图不压扁，可选）。 */
     sleep?: string
+    /** 警灯甲/乙帧（成对出现，待机 480ms 交替闪，如警车红蓝警灯）。 */
+    lampA?: string
+    lampB?: string
+    /** 卷形图（roll 动作换图，犰狳卷成球滚动）。 */
+    roll?: string
   }
   shoutAnim?: ShoutFrame[]
   signature?: ActionName
@@ -109,6 +114,8 @@ export interface PackSkinDef {
   doneVoice?: VoiceName
   /** 完成路径专属采样（mp3 dataurl）。 */
   doneSounds?: string[]
+  /** 完成庆祝光环（幽灵系配置；任务完成时头顶金环浮现）。 */
+  halo?: boolean
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -244,6 +251,9 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     imageFlyShout: skin.images.flyShout,
     imageSpout: skin.images.spout,
     imageSleep: skin.images.sleep,
+    imageLampA: skin.images.lampA,
+    imageLampB: skin.images.lampB,
+    imageRoll: skin.images.roll,
     voice: char.voice.type === 'samples' ? 'mama' : char.voice.preset,
     sounds: char.voice.type === 'samples' ? char.voice.sounds : undefined,
     replySound: char.voice.type === 'samples' ? char.voice.reply : undefined,
@@ -258,6 +268,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     ...(skin.driveStyle !== undefined ? { driveStyle: skin.driveStyle } : {}),
     ...(skin.doneVoice !== undefined ? { doneVoice: skin.doneVoice } : {}),
     ...((skin.doneSounds?.length ?? 0) > 0 ? { doneSounds: skin.doneSounds } : {}),
+    ...(skin.halo === true ? { halo: true } : {}),
     ...(skin.jelly === true ? { jelly: true } : {}),
   }
 }
@@ -474,7 +485,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         } else if (typeof imgRaw.stand !== 'string') {
           errors.push(`${at}.images.stand: 必填（透明底 png）`)
         }
-        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout', 'sleep'] as const) {
+        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout', 'sleep', 'lampA', 'lampB', 'roll'] as const) {
           const d = asset(`${at}.images.${key}`, IMG_EXT)
           if (d !== undefined) images[key] = d
         }
@@ -586,6 +597,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(driveStyle !== undefined ? { driveStyle } : {}),
           ...(doneVoice !== undefined ? { doneVoice } : {}),
           ...(doneSounds.length > 0 ? { doneSounds } : {}),
+          ...(s.halo === true ? { halo: true } : {}),
           ...(jelly ? { jelly: true } : {}),
         })
       }
