@@ -934,11 +934,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const cx = rect.left + rect.width / 2
     const bottom = rect.bottom
     const z = (Number(root.style.zIndex) || 99999) + 1
-    // 主图一压隐身（"陷进地里"），期间根节点拒拖（隐身还被拎走就灵异了）
+    // 主图一压隐身（"陷进地里"），期间根节点拒拖（隐身还被拎走就灵异了）。
+    // 不加 fill:forwards——WAAPI 前向填充永久压内联样式，没人取消会把主图钉死在趴扁态
+    // （铁律#1；await finished 与隐身之间无渲染帧，不需要 fill 兜底）
     root.style.pointerEvents = 'none'
     await img.animate(
       [{ transform: 'scale(1,1)' }, { transform: 'scale(1.3,0.5)' }],
-      { duration: 170, easing: 'ease-in', fill: 'forwards' },
+      { duration: 170, easing: 'ease-in' },
     ).finished.catch(() => {})
     img.style.visibility = 'hidden'
     img.style.transform = ''

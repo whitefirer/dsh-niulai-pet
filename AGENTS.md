@@ -170,6 +170,9 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 `splitClones`，destroy/中途异常走 `cleanupSplit` 兜底还原（可见性/拖拽/计时器）。
 注意：分裂中主宠 root 也是 `body>div` + pointer-events:none + 有 img，
 写 DOM 探测脚本时会被误判成克隆（按 img 高度 ≠ 主宠高区分）。
+**开场压扁动画绝不能加 `fill:'forwards'`**——WAAPI 前向填充永久压内联样式，
+没人取消会把主图钉死在趴扁态，之后的走路/跳跃动画只是暂时盖过它，
+停下又趴回去（用户报「一会正常一会趴着」翻出来的，铁律#1 的翻版）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
