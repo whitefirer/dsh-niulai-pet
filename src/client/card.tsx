@@ -88,6 +88,7 @@ const zh = {
   petN: '桌宠',
   petSize: '桌宠大小',
   petSizeReset: '重置',
+  petHue: '色相',
   doneAction: '完成时动作',
   pokeAction: '戳我动作',
   packs: '自定义角色',
@@ -186,6 +187,7 @@ const en: Record<keyof typeof zh, string> = {
   petN: 'Pet',
   petSize: 'Pet size',
   petSizeReset: 'Reset',
+  petHue: 'Hue',
   doneAction: 'Action on done',
   pokeAction: 'Action on poke',
   packs: 'Custom characters',
@@ -502,6 +504,36 @@ function SizeField(props: { value: number; disabled: boolean; label: string; onC
         onBlur={commit}
       />
       <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 34, textAlign: 'right' }}>{draft}px</span>
+    </span>
+  )
+}
+
+/** 色相滑杆（0-360°，松手提交；样式同 SizeField，标签 N°；0=原色）。 */
+function HueField(props: { value: number; disabled: boolean; label: string; onCommit(n: number): void }) {
+  const [draft, setDraft] = useState(props.value)
+  const [dragging, setDragging] = useState(false)
+  if (!dragging && draft !== props.value) setDraft(props.value)
+  const commit = (): void => {
+    setDragging(false)
+    if (draft !== props.value) props.onCommit(draft)
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+      <input
+        type="range"
+        min={0}
+        max={360}
+        step={1}
+        aria-label={props.label}
+        disabled={props.disabled}
+        value={draft}
+        style={{ width: 110, accentColor: 'var(--dsw-alias-brand-primary, #3b82f6)', opacity: props.disabled ? 0.4 : 1 }}
+        onChange={(e) => { setDragging(true); setDraft(Number(e.target.value)) }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      <span style={{ fontSize: 12, color: colors.labelTertiary, minWidth: 34, textAlign: 'right' }}>{draft}°</span>
     </span>
   )
 }
@@ -1027,8 +1059,8 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packs !== undefined ? packs.subscribe : noopSubscribe,
     packs !== undefined ? packs.getSnapshot : EMPTY_PACKS,
   )
-  // 配置对象：主宠或某只额外表（皮肤/大小按只存；动作绑定按皮肤全局共享）
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize }))]
+  // 配置对象：主宠或某只额外表（皮肤/大小/色相按只存；动作绑定按皮肤全局共享）
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? 0 }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
   /** 当前对象皮肤的默认大小（重置按钮目标值）。 */
@@ -1045,6 +1077,10 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })
     else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, size: v } : p) })
+  }
+  const setTargetHue = (v: number): void => {
+    if (target.id === 'main') props.set({ petHue: v })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, hue: v } : p) })
   }
   return (
     <li data-niulai-card style={{
@@ -1270,6 +1306,26 @@ export function NiulaiCard(props: NiulaiCardProps) {
                         opacity: disabled ? 0.4 : 1,
                       }}
                       onClick={() => { setTargetSize(targetDefaultSize) }}>
+                      {t('petSizeReset')}
+                    </button>
+                  )
+                  : null}
+              </span>
+            </Row>
+            <Row label={petList.length > 1 ? `${t('petHue')} · ${targetSkinName}` : t('petHue')}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <HueField value={target.hue} disabled={disabled} label={t('petHue')}
+                  onCommit={setTargetHue} />
+                {target.hue !== 0
+                  ? (
+                    <button type="button" disabled={disabled}
+                      style={{
+                        font: 'inherit', fontSize: 12, padding: '3px 10px', borderRadius: 7,
+                        border: `1px solid ${colors.border}`, background: 'none',
+                        color: colors.labelPrimary, cursor: disabled ? 'default' : 'pointer',
+                        opacity: disabled ? 0.4 : 1,
+                      }}
+                      onClick={() => { setTargetHue(0) }}>
                       {t('petSizeReset')}
                     </button>
                   )

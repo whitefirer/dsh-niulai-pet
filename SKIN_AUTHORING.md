@@ -78,6 +78,7 @@ my-pet.nlpack.zip          # 普通 zip，建议后缀 .nlpack.zip
 | `signature` | 签名动作（不能是 signature/random） |
 | `shoutBubble` | 喊叫气泡文案 |
 | `quips` | 皮肤级语录 |
+| `jelly` | `true` 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动，适合史莱姆类软体角色 |
 
 ### 可绑定动作（闭集）
 

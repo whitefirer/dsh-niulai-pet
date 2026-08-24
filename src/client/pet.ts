@@ -70,6 +70,8 @@ export interface SkinDef {
   quips?: string[]
   /** 默认显示高度 px（角色包声明；选用该皮肤时大小落到它，用户另行调整优先）。 */
   defaultSize?: number
+  /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
+  jelly?: boolean
 }
 
 export interface PetAssets {
@@ -295,6 +297,24 @@ function synthThud(ctx: AudioContext, strength: number): void {
   osc.start(t0); osc.stop(t0 + 0.18)
 }
 
+/** 果冻落地「啵嘤」：中频正弦快速下滑后小回弹（duang 感）；strength 0-1 控峰值。 */
+function synthBoing(ctx: AudioContext, strength: number): void {
+  const t0 = ctx.currentTime
+  const osc = ctx.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(320, t0)
+  osc.frequency.exponentialRampToValueAtTime(140, t0 + 0.09)
+  osc.frequency.exponentialRampToValueAtTime(190, t0 + 0.16)
+  osc.frequency.exponentialRampToValueAtTime(120, t0 + 0.28)
+  const g = ctx.createGain()
+  const peak = 0.2 * Math.max(0.15, Math.min(1, strength))
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.014)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3)
+  osc.connect(g); g.connect(volDest(ctx))
+  osc.start(t0); osc.stop(t0 + 0.32)
+}
+
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
   let skins = assets.skins.length > 0
     ? assets.skins
@@ -315,6 +335,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 本宠大小：forceSize 最优先；主宠读 petSize；额外表读各自条目 size（缺省回 petSize）。 */
   const mySize = (c: PetConfig): number =>
     assets.forceSize ?? (petId === 'main' ? c.petSize : (c.extraPets.find((p) => p.id === petId)?.size ?? c.petSize))
+  /** 本宠色相：主宠读 petHue；额外表读各自条目 hue（缺省 0=原色）。 */
+  const myHue = (c: PetConfig): number =>
+    petId === 'main' ? c.petHue : (c.extraPets.find((p) => p.id === petId)?.hue ?? 0)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
    *  换皮肤时大小落到新皮肤的默认（用户之后再调优先；皮肤高矮是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
@@ -342,6 +365,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
   const initCfg = config.getSnapshot()
   let petH = mySize(initCfg)
+  let petHue = myHue(initCfg)
+  /** 睡眠压暗态（applyImgFilter 合成用）。 */
+  let dimmed = false
   let skin: SkinDef = findSkin(mySkinId(initCfg))
   let muted = initCfg.muted
   let shoutOnDone = initCfg.shoutOnDone
@@ -391,6 +417,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
+  /** 合成 img 滤镜：色相旋转 + 睡眠压暗（sleepFor/wakeFromSleep 与 syncConfig 共用）。 */
+  const applyImgFilter = (): void => {
+    const parts: string[] = []
+    if (petHue !== 0) parts.push(`hue-rotate(${petHue}deg)`)
+    if (dimmed) parts.push('brightness(.82)')
+    img.style.filter = parts.join(' ')
+  }
+  applyImgFilter()
 
   const bubble = document.createElement('div')
   // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
@@ -828,14 +862,24 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const dist = Math.abs(target - from)
     const dur = Math.max(500, (dist / 60) * 1000) // ~60px/s
     breathe.pause()
-    const wobble = img.animate(
-      [
-        { transform: 'rotate(4deg) translateY(0)' },
-        { transform: 'rotate(-4deg) translateY(-3px)' },
-        { transform: 'rotate(4deg) translateY(0)' },
-      ],
-      { duration: 320, iterations: Math.max(1, Math.round(dur / 320)) },
-    )
+    // 果冻走路：身体前后挤压摆动（duang duang 感）；普通皮肤：左右倾摇摆
+    const wobble = cur().jelly === true
+      ? img.animate(
+          [
+            { transform: 'scale(1.07,0.93) translateY(2px)' },
+            { transform: 'scale(0.95,1.06) translateY(-3px)' },
+            { transform: 'scale(1.07,0.93) translateY(2px)' },
+          ],
+          { duration: 300, iterations: Math.max(1, Math.round(dur / 300)) },
+        )
+      : img.animate(
+          [
+            { transform: 'rotate(4deg) translateY(0)' },
+            { transform: 'rotate(-4deg) translateY(-3px)' },
+            { transform: 'rotate(4deg) translateY(0)' },
+          ],
+          { duration: 320, iterations: Math.max(1, Math.round(dur / 320)) },
+        )
     const start = performance.now()
     await new Promise<void>((resolve) => {
       const step = (now: number): void => {
@@ -874,10 +918,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       sleepAnim = squash
       await squash.finished.catch(() => {})
     }
-    img.style.filter = 'brightness(.82)'
+    dimmed = true
+    applyImgFilter()
     await new Promise((r) => window.setTimeout(r, ms))
     if (destroyed) return
-    img.style.filter = ''
+    dimmed = false
+    applyImgFilter()
     if (mood !== 'sleep') {
       squash?.cancel() // 被打断：解除压扁，不抢 transform 与 mood（专睡图由 wakeFromSleep 换回来）
       return
@@ -904,7 +950,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const wakeFromSleep = (): void => {
     if (mood !== 'sleep') return
     mood = 'idle' // sleepFor 的延时醒来检查见此即走「被打断」路径归位
-    img.style.filter = ''
+    dimmed = false
+    applyImgFilter()
     if (cur().imageSleep !== undefined) img.src = skinIdle() // 专睡图换回来
     sleepAnim?.cancel()
     sleepAnim = null
@@ -1329,8 +1376,28 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
   })
 
-  /** 落地压扁回弹（坠落越深压越扁）+ 闷响（深度定音量）。砸落碰撞在 startFall 首次触地时触发。 */
+  /** 落地压扁回弹（坠落越深压越扁）+ 闷响（深度定音量）。砸落碰撞在 startFall 首次触地时触发。
+   *  果冻皮肤：多段阻尼弹跳（压扁→拉长→小幅震荡收束）+ 啵嘤声，物理玩具感的核心。 */
   const landSquash = (dropH: number): void => {
+    if (cur().jelly === true) {
+      const deep = Math.min(0.42, dropH / 1000)
+      void img.animate(
+        [
+          { transform: 'scale(1,1)', offset: 0 },
+          { transform: `scale(${1 + deep * 0.9},${1 - deep})`, offset: 0.2 },
+          { transform: `scale(${1 - deep * 0.5},${1 + deep * 0.55})`, offset: 0.42 },
+          { transform: `scale(${1 + deep * 0.28},${1 - deep * 0.26})`, offset: 0.62 },
+          { transform: `scale(${1 - deep * 0.12},${1 + deep * 0.13})`, offset: 0.8 },
+          { transform: 'scale(1,1)', offset: 1 },
+        ],
+        { duration: 520 + Math.min(380, dropH / 2), easing: 'ease-out' },
+      ).finished.catch(() => {})
+      if (!muted && dropH > 30) {
+        const ctx = audioCtx()
+        if (ctx !== null) synthBoing(ctx, Math.min(1, dropH / 500))
+      }
+      return
+    }
     const deep = Math.min(0.35, dropH / 1200)
     void img.animate(
       [{ transform: 'scaleY(1)' }, { transform: `scaleY(${1 - deep})` }, { transform: 'scaleY(1)' }],
@@ -1618,6 +1685,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       img.style.height = `${petH}px`
       frameW.clear() // 帧宽按 petH 换算的缓存全废，重新预读
       preloadAssets(skins)
+    }
+    const newHue = myHue(c)
+    if (newHue !== petHue) {
+      petHue = newHue
+      applyImgFilter()
     }
   }
   const unsubConfig = config.subscribe(() => {

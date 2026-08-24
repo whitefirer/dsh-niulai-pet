@@ -95,6 +95,8 @@ export interface PackSkinDef {
   quips?: string[]
   /** 默认显示高度 px（72-200；选用该皮肤时大小滑杆落到它，用户另行调整优先）。 */
   defaultSize?: number
+  /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
+  jelly?: boolean
 }
 
 /** 角色（character）：声音 + 动作 + 事件 + 语录；皮肤是外观。 */
@@ -235,6 +237,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     shoutBubble: skin.shoutBubble ?? char.name,
     quips: [...char.quips ?? [], ...skin.quips ?? []],
     defaultSize: skin.defaultSize ?? 120,
+    ...(skin.jelly === true ? { jelly: true } : {}),
   }
 }
 
@@ -497,6 +500,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         if (Number.isInteger(n) && n >= 72 && n <= 200) defaultSize = n
         else errors.push(`${at}.size: 必须 72~200 的整数，收到 ${JSON.stringify(s.size)}`)
       }
+      const jelly = s.jelly === true
 
       if (standOk) {
         skins.push({
@@ -509,6 +513,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(shoutBubble !== undefined ? { shoutBubble } : {}),
           ...(squips.length > 0 ? { quips: squips } : {}),
           ...(defaultSize !== undefined ? { defaultSize } : {}),
+          ...(jelly ? { jelly: true } : {}),
         })
       }
     })
