@@ -28,7 +28,7 @@ export type VoiceName = 'mama' | 'moo' | 'whale' | 'squeak' | 'meow' | null
 
 /** 可绑定到事件的动作。signature=当前皮肤签名动作。 */
 export type ActionName =
-  | 'signature' | 'fly' | 'dance' | 'spin' | 'hops' | 'roll' | 'breach' | 'sway' | 'random'
+  | 'signature' | 'fly' | 'dance' | 'spin' | 'hops' | 'roll' | 'breach' | 'sway' | 'split' | 'random'
 
 /** 喊叫动画帧：at = 起始时刻（占喊声全长比例 0..1，升序）；rock = 该帧期间附加倒地摇摆。 */
 export interface ShoutFrame {
@@ -76,6 +76,8 @@ export interface SkinDef {
   defaultSize?: number
   /** 默认不透明度 %（角色包声明，20-100；选用该皮肤时透明度落到它，用户另行调整优先；缺省 100）。 */
   defaultOpacity?: number
+  /** 默认色相旋转 °（角色包声明，0-360；选用该皮肤时色相落到它，用户另行调整优先；缺省 0=原色）。 */
+  defaultHue?: number
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -138,12 +140,12 @@ type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配置热改）
 
 /** 随机池（具体动作）。 */
-const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway']
+const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split']
 /** 动作全序（菜单循环顺序、设置卡片下拉项；新增动作时同步 host 半 index.js 的 ACTION_IDS）。 */
 export const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
 const ACTION_LABEL: Record<ActionName, string> = {
   signature: '签名动作', fly: '飞行', dance: '摇摆舞', spin: '转圈', hops: '连跳',
-  roll: '翻滚', breach: '跃出水面', sway: '摇摆', random: '随机',
+  roll: '翻滚', breach: '跃出水面', sway: '摇摆', split: '分裂', random: '随机',
 }
 
 /** 全局气泡唠叨语录（与皮肤专属语录合并抽取）。 */
@@ -347,9 +349,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 本宠大小：forceSize 最优先；主宠读 petSize；额外表读各自条目 size（缺省回 petSize）。 */
   const mySize = (c: PetConfig): number =>
     assets.forceSize ?? (petId === 'main' ? c.petSize : (c.extraPets.find((p) => p.id === petId)?.size ?? c.petSize))
-  /** 本宠色相：主宠读 petHue；额外表读各自条目 hue（缺省 0=原色）。 */
+  /** 本宠色相：主宠读 petHue；额外表读各自条目 hue（缺省回皮肤包声明的默认，再缺省 0=原色）。 */
   const myHue = (c: PetConfig): number =>
-    petId === 'main' ? c.petHue : (c.extraPets.find((p) => p.id === petId)?.hue ?? 0)
+    petId === 'main'
+      ? c.petHue
+      : (c.extraPets.find((p) => p.id === petId)?.hue
+          ?? skins.find((s) => s.id === mySkinId(c))?.defaultHue ?? 0)
   /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省回皮肤包声明的默认，再缺省 100）。 */
   const myOpacity = (c: PetConfig): number =>
     petId === 'main'
@@ -357,16 +362,17 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       : (c.extraPets.find((p) => p.id === petId)?.opacity
           ?? skins.find((s) => s.id === mySkinId(c))?.defaultOpacity ?? 100)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
-   *  换皮肤时大小/不透明度落到新皮肤的默认（用户之后再调优先；皮肤高矮质感是外观固有属性）。 */
+   *  换皮肤时大小/不透明度/色相落到新皮肤的默认（用户之后再调优先；皮肤高矮质感颜色是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
     const def = skins.find((s) => s.id === skin)
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
+    const hue = def?.defaultHue ?? 0
     if (petId === 'main') {
-      config.set({ skin, petSize: size, petOpacity: opacity })
+      config.set({ skin, petSize: size, petOpacity: opacity, petHue: hue })
       return
     }
-    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity } : p)
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity, hue } : p)
     config.set({ extraPets: list })
   }
   /** 写本宠色相：主宠写 petHue；额外表读-改-写自己的条目。 */
@@ -904,6 +910,98 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (!destroyed) breathe.play()
   }
 
+  // ---- 分裂（史莱姆签名）：主图先"陷进去"隐身，2~3 个小号克隆散开乱跳，再聚拢合体弹回 ----
+  // 轻量克隆版：克隆是纯 DOM（不挂状态机/不进物理/不写配置），眨眼=定时换 src，
+  // 合体后主图走 landSquash（果冻皮多段阻尼弹跳 + 啵嘤声）。
+  const splitClones: HTMLDivElement[] = []
+  const splitTimers: number[] = []
+  let splitting = false
+  const cleanupSplit = (): void => {
+    for (const t of splitTimers) window.clearInterval(t)
+    splitTimers.length = 0
+    for (const c of splitClones) c.remove()
+    splitClones.length = 0
+    splitting = false
+    img.style.visibility = ''
+    img.style.transform = ''
+    root.style.pointerEvents = ''
+  }
+  const split = async (): Promise<void> => {
+    if (splitting || destroyed) return
+    splitting = true
+    breathe.pause()
+    const rect = root.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const bottom = rect.bottom
+    const z = (Number(root.style.zIndex) || 99999) + 1
+    // 主图一压隐身（"陷进地里"），期间根节点拒拖（隐身还被拎走就灵异了）
+    root.style.pointerEvents = 'none'
+    await img.animate(
+      [{ transform: 'scale(1,1)' }, { transform: 'scale(1.3,0.5)' }],
+      { duration: 170, easing: 'ease-in', fill: 'forwards' },
+    ).finished.catch(() => {})
+    img.style.visibility = 'hidden'
+    img.style.transform = ''
+    if (destroyed) { cleanupSplit(); return }
+    playVoice() // 裂开一声（squeak/moo/采样，随皮肤音色；静音自吞）
+
+    const miniH = Math.max(36, Math.round(petH * 0.45))
+    const n = Math.random() < 0.5 ? 2 : 3
+    const scatterDur = 2100
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('div')
+      el.style.cssText = `position:fixed;left:${cx - miniH / 2}px;top:${bottom - miniH}px;z-index:${z};pointer-events:none;transform-origin:50% 100%`
+      const im = document.createElement('img')
+      im.src = cur().image
+      im.style.cssText = `height:${miniH}px;display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.3))`
+      el.appendChild(im)
+      el.style.visibility = 'hidden' // 到点再显形（逐个蹦出，不一窝蜂）
+      document.body.appendChild(el)
+      splitClones.push(el)
+      // 眨眼：与主宠同节奏池，闭 130ms
+      if (cur().imageBlink !== undefined) {
+        const standSrc = cur().image
+        const blinkSrc = cur().imageBlink as string
+        splitTimers.push(window.setInterval(() => {
+          im.src = blinkSrc
+          window.setTimeout(() => { im.src = standSrc }, 130)
+        }, 2200 + Math.random() * 2600))
+      }
+      // 散开三连跳（落地压扁→空中拉长），方向左右随机、步距随机、出场错峰
+      const dir = i % 2 === 0 ? -1 : 1 // 两左边一右或两右一左，别全压一边
+      const drift = dir * (60 + Math.random() * 100)
+      const delay = i * 130
+      const kf: Keyframe[] = [{ transform: 'translate(0px,0) scale(1,1)', offset: 0 }]
+      for (let h = 0; h < 3; h++) {
+        const t0 = h / 3
+        kf.push({ transform: `translate(${(drift * h) / 3}px,0) scale(1.16,0.78)`, offset: t0 + 0.02 })
+        kf.push({ transform: `translate(${(drift * (h + 0.5)) / 3}px,${-20 - Math.random() * 16}px) scale(0.92,1.12)`, offset: t0 + 0.17 })
+        kf.push({ transform: `translate(${(drift * (h + 1)) / 3}px,0) scale(1,1)`, offset: (h + 1) / 3 })
+      }
+      window.setTimeout(() => { if (!destroyed) el.style.visibility = '' }, delay)
+      void el.animate(kf, { duration: scatterDur, easing: 'ease-out', fill: 'forwards', delay }).finished.catch(() => {})
+    }
+    await new Promise<void>((r) => { window.setTimeout(r, scatterDur + n * 130 + 150) })
+    if (destroyed) { cleanupSplit(); return }
+    // 聚拢：从各自当前位滑回原点并缩小（fill:forwards 的终态就是起点）
+    playVoice() // 合体再一声
+    await Promise.all(splitClones.map((el) => {
+      const now = getComputedStyle(el).transform
+      return el.animate(
+        [
+          { transform: now === 'none' ? 'translate(0px,0) scale(1,1)' : now },
+          { transform: 'translate(0px,0) scale(0.55,0.55)' },
+        ],
+        { duration: 400, easing: 'ease-in', fill: 'forwards' },
+      ).finished.catch(() => {})
+    }))
+    const wasJelly = cur().jelly === true
+    cleanupSplit() // 摘克隆 + 主图显形 + 恢复拖拽
+    // 合体落地：果冻皮多段弹跳 + 啵嘤；非果冻走普通压扁闷响
+    landSquash(wasJelly ? 220 : 120)
+    if (!destroyed) breathe.play()
+  }
+
   // ---- 行为循环 ----
   let behaveTimer = 0
   const clampX = (): void => {
@@ -1108,7 +1206,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       : pick === 'spin' ? spin()
         : pick === 'sway' ? sway()
           : pick === 'roll' ? roll()
-            : hops3()
+            : pick === 'split' ? split()
+              : hops3()
     void run.then(done)
   }
 
@@ -1875,6 +1974,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     },
     destroy() {
       destroyed = true
+      cleanupSplit()
       unsubConfig()
       unsubSkins?.()
       unsubHighlight?.()

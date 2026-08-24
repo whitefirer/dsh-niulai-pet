@@ -97,6 +97,8 @@ export interface PackSkinDef {
   defaultSize?: number
   /** 默认不透明度 %（20-100；选用该皮肤时透明度落到它，用户另行调整优先；缺省 100）。 */
   defaultOpacity?: number
+  /** 默认色相旋转 °（0-360；选用该皮肤时色相落到它，用户另行调整优先；缺省 0=原色）。 */
+  defaultHue?: number
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -240,6 +242,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     quips: [...char.quips ?? [], ...skin.quips ?? []],
     defaultSize: skin.defaultSize ?? 120,
     ...(skin.defaultOpacity !== undefined ? { defaultOpacity: skin.defaultOpacity } : {}),
+    ...(skin.defaultHue !== undefined ? { defaultHue: skin.defaultHue } : {}),
     ...(skin.jelly === true ? { jelly: true } : {}),
   }
 }
@@ -269,7 +272,7 @@ export class PackParseError extends Error {
   }
 }
 
-const ACTIONS: readonly string[] = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'random']
+const ACTIONS: readonly string[] = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'random']
 const ID_RE = /^[a-z0-9-]{2,32}$/
 const SKIN_ID_RE = /^[a-z0-9-]{1,32}$/
 const IMG_EXT = /\.(png|webp)$/
@@ -509,6 +512,12 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         if (Number.isInteger(n) && n >= 20 && n <= 100) defaultOpacity = n
         else errors.push(`${at}.opacity: 必须 20~100 的整数，收到 ${JSON.stringify(s.opacity)}`)
       }
+      let defaultHue: number | undefined
+      if (s.hue !== undefined) {
+        const n = typeof s.hue === 'number' ? s.hue : NaN
+        if (Number.isInteger(n) && n >= 0 && n <= 360) defaultHue = n
+        else errors.push(`${at}.hue: 必须 0~360 的整数，收到 ${JSON.stringify(s.hue)}`)
+      }
       const jelly = s.jelly === true
 
       if (standOk) {
@@ -523,6 +532,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(squips.length > 0 ? { quips: squips } : {}),
           ...(defaultSize !== undefined ? { defaultSize } : {}),
           ...(defaultOpacity !== undefined ? { defaultOpacity } : {}),
+          ...(defaultHue !== undefined ? { defaultHue } : {}),
           ...(jelly ? { jelly: true } : {}),
         })
       }

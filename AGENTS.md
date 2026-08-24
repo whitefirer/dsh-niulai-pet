@@ -159,7 +159,16 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 大小是滑杆（72-200），多只时「配置对象」选择器带皮肤预览图选按只调。
 **不透明度**：皮肤可声明 `defaultOpacity`（自定义包 `opacity` 字段，20-100；
 如史莱姆 90），换皮肤/新建额外表时透明度落到它（额外表条目缺省也回退它），
-用户再调优先；滑杆/重置按钮同样以皮肤默认值为基准。
+用户再调优先；滑杆/重置按钮同样以皮肤默认值为基准。**色相**同理：
+`defaultHue`（自定义包 `hue` 字段，0-360，缺省 0=原色），换肤即落。
+
+**动作 `split`（分裂）**：史莱姆签名动作，轻量克隆版——主图一压隐身
+（根节点拒拖），2~3 个纯 DOM 克隆（45% 身高，不挂状态机/不进物理/不写配置）
+错峰散开三连跳（落地压扁空中拉长），眨眼=定时换 src，再聚拢缩小合体，
+主图走 landSquash 果冻弹回；裂开/合体各放一声角色音。克隆全部挂载在
+`splitClones`，destroy/中途异常走 `cleanupSplit` 兜底还原（可见性/拖拽/计时器）。
+注意：分裂中主宠 root 也是 `body>div` + pointer-events:none + 有 img，
+写 DOM 探测脚本时会被误判成克隆（按 imgH=54px 区分）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，

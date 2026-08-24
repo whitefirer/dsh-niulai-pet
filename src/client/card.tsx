@@ -133,6 +133,7 @@ const zh = {
   'action.roll': '翻滚',
   'action.breach': '跃出水面',
   'action.sway': '摇摆',
+  'action.split': '分裂',
   'action.random': '随机',
 }
 
@@ -241,6 +242,7 @@ const en: Record<keyof typeof zh, string> = {
   'action.roll': 'Roll',
   'action.breach': 'Breach',
   'action.sway': 'Sway',
+  'action.split': 'Split',
   'action.random': 'Random',
 }
 
@@ -1157,22 +1159,26 @@ export function NiulaiCard(props: NiulaiCardProps) {
   // 额外表透明度缺省回皮肤包声明的默认（如史莱姆 90%），再缺省 100——与 pet.ts myOpacity 同语义
   const skinDefOpacity = (skinId: string): number =>
     packSnap.skins.find((s) => s.id === skinId)?.defaultOpacity ?? 100
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? 0, opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
+  const skinDefHue = (skinId: string): number =>
+    packSnap.skins.find((s) => s.id === skinId)?.defaultHue ?? 0
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
-  /** 当前对象皮肤的默认大小/不透明度（重置按钮目标值）。 */
+  /** 当前对象皮肤的默认大小/不透明度/色相（重置按钮目标值）。 */
   const targetDefaultSize = packSnap.skins.find((s) => s.id === target.skin)?.defaultSize ?? 120
   const targetDefaultOpacity = skinDefOpacity(target.skin)
+  const targetDefaultHue = skinDefHue(target.skin)
   const targetDefaults = defaultActionsFor(packSnap.characters, target.skin)
   const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
   const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
   const setTargetSkin = (v: string): void => {
-    // 换皮肤大小/透明度落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
+    // 换皮肤大小/透明度/色相落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
     const def = packSnap.skins.find((s) => s.id === v)
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
-    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity })
-    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity } : p) })
+    const hue = def?.defaultHue ?? 0
+    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity, petHue: hue })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity, hue } : p) })
   }
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })
@@ -1464,7 +1470,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <SliderField value={target.hue} min={0} max={360} unit="°" disabled={disabled} label={t('petHue')}
                   onCommit={setTargetHue} />
-                {target.hue !== 0
+                {target.hue !== targetDefaultHue
                   ? (
                     <button type="button" disabled={disabled}
                       style={{
@@ -1473,7 +1479,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                         color: colors.labelPrimary, cursor: disabled ? 'default' : 'pointer',
                         opacity: disabled ? 0.4 : 1,
                       }}
-                      onClick={() => { setTargetHue(0) }}>
+                      onClick={() => { setTargetHue(targetDefaultHue) }}>
                       {t('petSizeReset')}
                     </button>
                   )

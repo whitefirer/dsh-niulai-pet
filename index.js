@@ -71,7 +71,7 @@ export const NIULAI_PET_NS = settingsNamespace('niulai-pet')
  * 可绑定到事件的动作集合（与 client 半 pet.ts 的 ACTION_ORDER 同源，
  * 新增动作时两边同步）。
  */
-const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'random']
+const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'random']
 
 /**
  * 皮肤 id：字符串自由形——自定义角色包的皮肤 id 是 `角色id/皮肤id` 组合，
