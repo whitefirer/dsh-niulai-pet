@@ -206,9 +206,14 @@ signature 占位符再判**（否则皮名下的 split 被吞，火史莱姆戳=
 
 **警灯交替 / 卷球滚动**：警车类皮肤配 `images.lampA/lampB` 后，lampTimer
 480ms 翻相位，`skinIdle()` 返回当前相位灯帧（喊叫/演出期不动 src）；
-犰狳类配 `images.roll` 后，roll 动作换球图绕重心轮转——**mouthShut 必须
-给 rollingBall 让位**（喊叫计时器会在 240ms 处把 src 踩回站姿图，球图瞬间
-消失，踩过；先有 rotate 无球图就是这么来的）。
+犰狳类配 `images.roll` 后，**roll 动作全地滚过**（卷球图 + 轮转角=行程/半径：
+冲出本侧→另一侧杀回→滑回原位，~3.6s，镜像父级内不乘 dir）——
+**mouthShut 必须给 rollingBall 让位**（喊叫计时器会在 240ms 处把 src 踩回
+站姿图，球图瞬间消失，踩过；先有 rotate 无球图就是这么来的）。
+
+**气泡耗时已知限制（2026-08-25）**：宿主会话快照不含起跑时间，客户端只能
+观测到 running 时起算（种子/订阅点），dsh 侧约 60s 更新一次 → 展示耗时稳定
+少 ~1 分钟。正确修法在 dsh 上游：session 摘要加 startedAt（pending）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，

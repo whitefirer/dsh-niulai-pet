@@ -1185,28 +1185,75 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     breathe.cancel() // 内联 transform 与 pause 态的 breathe 叠加会被顶掉，必须 cancel
     const hadBallImg = cur().imageRoll !== undefined
     rollingBall = hadBallImg
-    if (hadBallImg) img.src = cur().imageRoll as string // 犰狳卷成球：换卷形图再轮转
-    const from = x
-    let target = from + 210 * facing
-    target = Math.min(Math.max(0, target), window.innerWidth - 70)
-    const dist = target - from
-    const dir = dist === 0 ? facing : Math.sign(dist)
-    img.style.transformOrigin = '50% 50%'
-    const dur = 950
-    const start = performance.now()
-    await new Promise<void>((resolve) => {
-      const step = (now: number): void => {
-        if (destroyed || mood !== 'celebrate') { resolve(); return }
-        const t = Math.min(1, (now - start) / dur)
-        x = from + dist * t
-        const yOff = -Math.sin(t * Math.PI) * 16
-        root.style.transform = `translateX(${x}px) translateY(${yOff}px) scaleX(${facing})`
-        img.style.transform = `rotate(${360 * dir * t}deg)`
-        if (t < 1) requestAnimationFrame(step)
-        else resolve()
-      }
-      requestAnimationFrame(step)
-    })
+    if (!hadBallImg) {
+      // 无卷形图（熊猫）：原版短程翻滚 210px
+      const from = x
+      let target = from + 210 * facing
+      target = Math.min(Math.max(0, target), window.innerWidth - 70)
+      const dist = target - from
+      const dir = dist === 0 ? facing : Math.sign(dist)
+      img.style.transformOrigin = '50% 50%'
+      const dur = 950
+      const start = performance.now()
+      await new Promise<void>((resolve) => {
+        const step = (now: number): void => {
+          if (destroyed || mood !== 'celebrate') { resolve(); return }
+          const t = Math.min(1, (now - start) / dur)
+          x = from + dist * t
+          const yOff = -Math.sin(t * Math.PI) * 16
+          root.style.transform = `translateX(${x}px) translateY(${yOff}px) scaleX(${facing})`
+          img.style.transform = `rotate(${360 * dir * t}deg)`
+          if (t < 1) requestAnimationFrame(step)
+          else resolve()
+        }
+        requestAnimationFrame(step)
+      })
+    } else {
+      // 卷球（犰狳）：像车轮一样滚过整个地面——冲出本侧、另一侧杀回、滑回原位
+      // 转角 = 行程/半径（radius = petH/2），镜像父级内不乘 dir（铁律#2）
+      const s = cur()
+      img.src = s.imageRoll as string
+      const homeX = x
+      const homeFacing = facing
+      const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
+      facing = dir
+      root.style.setProperty('--face', String(dir))
+      const w = root.getBoundingClientRect().width
+      const off = w + 40
+      const radius = Math.max(20, petH / 2)
+      const dur = 3600
+      const start = performance.now()
+      let cumDist = 0 // 轮转角 = cumDist/radius（rad）
+      await new Promise<void>((resolve) => {
+        const step = (now: number): void => {
+          if (destroyed || mood !== 'celebrate') { resolve(); return }
+          const t = Math.min(1, (now - start) / dur)
+          const prevX = x
+          let nx: number
+          if (t < 0.34) nx = homeX + dir * window.innerWidth * ((t / 0.34) ** 1.6)
+          else if (t < 0.36) nx = dir === 1 ? -off : window.innerWidth + off
+          else if (t < 0.62) {
+            const k = (t - 0.36) / 0.26
+            nx = (dir === 1 ? -off : window.innerWidth + off) + (dir === 1 ? 1 : -1) * (window.innerWidth + off * 2) * k
+          } else {
+            const k = (t - 0.64) / 0.36
+            const e = 1 - (1 - k) * (1 - k)
+            nx = (dir === 1 ? window.innerWidth + off : -off) + (homeX - (dir === 1 ? window.innerWidth + off : -off)) * e
+          }
+          cumDist += Math.abs(nx - prevX)
+          x = nx
+          root.style.transform = `translateX(${x}px) scaleX(${facing})`
+          img.style.transform = `rotate(${(cumDist / radius) * 57.2958}deg)`
+          if (t < 1) requestAnimationFrame(step)
+          else resolve()
+        }
+        requestAnimationFrame(step)
+      })
+      x = homeX
+      facing = homeFacing
+      root.style.setProperty('--face', String(homeFacing))
+      applyX()
+    }
     img.style.transform = ''
     img.style.transformOrigin = '50% 100%'
     if (hadBallImg) { img.src = skinIdle(); rollingBall = false } // 球图用完换回常态（警灯皮走 skinIdle 拿到当前灯相位）
