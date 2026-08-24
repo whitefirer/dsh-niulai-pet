@@ -489,7 +489,7 @@ export class ConfigStore {
     return out
   }
 
-  /** 绑定清洗：皮肤 id 白名单 + 字段形状；动作名合法性由消费端 asAction 回落与 Host schema 共同围栏。 */
+  /** 绑定清洗：皮肤 id 白名单 + 字段形状；动作名合法性由消费端 asAction 围栏（Host schema 是 z.string() 不枚举，前向兼容未来动作）。 */
   private sanitizeActions(input: Record<string, unknown> | undefined): Record<string, SkinActionBinding> {
     const out: Record<string, SkinActionBinding> = {}
     if (input === undefined) return out

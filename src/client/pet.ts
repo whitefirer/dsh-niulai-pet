@@ -141,7 +141,7 @@ const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配�
 
 /** 随机池（具体动作）。 */
 const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split']
-/** 动作全序（菜单循环顺序、设置卡片下拉项；新增动作时同步 host 半 index.js 的 ACTION_IDS）。 */
+/** 动作全序（菜单循环顺序、设置卡片下拉项；合法性唯一围栏，host schema 是 z.string() 不枚举——前向兼容，见 index.js Action 注释）。 */
 export const ACTION_ORDER: ActionName[] = ['signature', ...ACTION_POOL, 'random']
 const ACTION_LABEL: Record<ActionName, string> = {
   signature: '签名动作', fly: '飞行', dance: '摇摆舞', spin: '转圈', hops: '连跳',

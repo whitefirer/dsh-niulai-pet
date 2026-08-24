@@ -68,10 +68,14 @@ async function serveKws(req, res) {
 export const NIULAI_PET_NS = settingsNamespace('niulai-pet')
 
 /**
- * 可绑定到事件的动作集合（与 client 半 pet.ts 的 ACTION_ORDER 同源，
- * 新增动作时两边同步）。
+ * 动作绑定值：故意**不做枚举**（z.string()）。枚举会把「新动作」判成老宿主
+ * 的非法值——插件升级后宿主不重启就写不进配置（2026-08-25 踩过：split 绑定
+ * 被昨天启动的宿主 schema 拒写，3s 乐观层过期回退连跳）。
+ * 合法性由 client 半 pet.ts 的 ACTION_ORDER/asAction 围栏（未知动作回落默认），
+ * 这样老宿主永远接受未来的新动作：插件升级 = 刷新页面即可。
+ * 动作全集备查：signature / fly / dance / spin / hops / roll / breach / sway / split / random
  */
-const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'random']
+const Action = z.string()
 
 /**
  * 皮肤 id：字符串自由形——自定义角色包的皮肤 id 是 `角色id/皮肤id` 组合，
@@ -79,8 +83,6 @@ const ACTION_IDS = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach
  * 失效 id（包被删）在 client 解析时回落默认皮肤。
  */
 const SKIN_IDS = ['niulai', 'orig', 'young', 'cow', 'panda', 'whale', 'nailong'] // 内置皮肤，仅注释备查
-
-const Action = z.union(ACTION_IDS)
 
 /**
  * 配置模型：行为键全局通用；完成/戳一一动作绑定按皮肤记（actions 以皮肤 id
