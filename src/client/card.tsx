@@ -43,7 +43,7 @@ const zh = {
   customSoundTest: '试听',
   customSoundClear: '清除',
   customSoundTooBig: '文件超过 1MB，换个小点的',
-  tabPet: '这只桌宠',
+  tabPet: '当前桌宠',
   tabGlobal: '通用',
   sleepEnabled: '闲置打盹（变灰变矮）',
   walkEnabled: '随意走动（闲置游走）',
@@ -151,7 +151,7 @@ const en: Record<keyof typeof zh, string> = {
   customSoundTest: 'Play',
   customSoundClear: 'Clear',
   customSoundTooBig: 'File exceeds 1MB',
-  tabPet: 'This pet',
+  tabPet: 'Current pet',
   tabGlobal: 'General',
   sleepEnabled: 'Idle nap (dims & squashes)',
   walkEnabled: 'Wander (idle walk)',
@@ -269,8 +269,12 @@ export interface NiulaiCardFace {
   /** 语音停喊调试状态（识别分/是否在听/命中时刻），pet 侧 publish。 */
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
   packs?: PacksFace
-  /** 点预览图高亮对应桌宠（pet.ts 认领）。 */
-  highlight?: { emit(petId: string): void }
+  /** 点预览图高亮对应桌宠 + 「当前桌宠」tab 驻留高亮（pet.ts 认领）。 */
+  highlight?: {
+    emit(petId: string): void
+    setHold?(petId: string | null): void
+    releaseHold?(petId: string): void
+  }
 }
 
 /** 组件 props（框架 t 座 + 注入面绑定后的形态，结构化自描）。 */
@@ -281,8 +285,12 @@ export interface NiulaiCardProps {
   setSkinAction(skin: string, event: 'done' | 'poke', action: ActionName): void
   voiceDebug?: { getSnapshot(): VoiceDebugState; subscribe(fn: () => void): () => void }
   packs?: PacksFace
-  /** 点预览图高亮对应桌宠（pet.ts 认领）。 */
-  highlight?: { emit(petId: string): void }
+  /** 点预览图高亮对应桌宠 + 「当前桌宠」tab 驻留高亮（pet.ts 认领）。 */
+  highlight?: {
+    emit(petId: string): void
+    setHold?(petId: string | null): void
+    releaseHold?(petId: string): void
+  }
   /** 悬浮设置面板形态：初始展开（设置页卡片默认收起）。 */
   defaultOpen?: boolean
   /** 初始配置对象（右键菜单从哪只桌宠开来就选哪只；缺省 main）。 */
@@ -1086,6 +1094,14 @@ export function NiulaiCard(props: NiulaiCardProps) {
   // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
   const [petSel, setPetSel] = useState(props.initialPet ?? 'main')
   const [tab, setTab] = useState<'pet' | 'global'>('pet')
+  // 「当前桌宠」tab 展开期间持续高亮选中桌宠；切 tab/换对象/收起/卸载（关面板）即恢复。
+  // 必须在 ready 早退前挂 hook（该早退是既有模式，hook 顺序不能被打乱）。
+  const hl = props.highlight
+  useEffect(() => {
+    if (!open || tab !== 'pet' || hl?.setHold === undefined) return
+    hl.setHold(petSel)
+    return () => { hl.releaseHold?.(petSel) }
+  }, [open, tab, petSel, hl])
   const { t } = props
   const state = props.useNiulaiPet((s) => s)
   if (!state.ready) return null
@@ -1138,19 +1154,25 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packs !== undefined ? packs.getSnapshot : EMPTY_PACKS,
   )
   // 配置对象：主宠或某只额外表（皮肤/大小/色相按只存；动作绑定按皮肤全局共享）
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? 0, opacity: p.opacity ?? 100 }))]
+  // 额外表透明度缺省回皮肤包声明的默认（如史莱姆 90%），再缺省 100——与 pet.ts myOpacity 同语义
+  const skinDefOpacity = (skinId: string): number =>
+    packSnap.skins.find((s) => s.id === skinId)?.defaultOpacity ?? 100
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? 0, opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
-  /** 当前对象皮肤的默认大小（重置按钮目标值）。 */
+  /** 当前对象皮肤的默认大小/不透明度（重置按钮目标值）。 */
   const targetDefaultSize = packSnap.skins.find((s) => s.id === target.skin)?.defaultSize ?? 120
+  const targetDefaultOpacity = skinDefOpacity(target.skin)
   const targetDefaults = defaultActionsFor(packSnap.characters, target.skin)
   const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
   const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
   const setTargetSkin = (v: string): void => {
-    // 换皮肤大小落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
-    const size = packSnap.skins.find((s) => s.id === v)?.defaultSize ?? 120
-    if (target.id === 'main') props.set({ skin: v, petSize: size })
-    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size } : p) })
+    // 换皮肤大小/透明度落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
+    const def = packSnap.skins.find((s) => s.id === v)
+    const size = def?.defaultSize ?? 120
+    const opacity = def?.defaultOpacity ?? 100
+    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity } : p) })
   }
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })
@@ -1462,7 +1484,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <SliderField value={target.opacity} min={20} max={100} unit="%" disabled={disabled} label={t('petOpacity')}
                   onCommit={setTargetOpacity} />
-                {target.opacity !== 100
+                {target.opacity !== targetDefaultOpacity
                   ? (
                     <button type="button" disabled={disabled}
                       style={{
@@ -1471,7 +1493,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
                         color: colors.labelPrimary, cursor: disabled ? 'default' : 'pointer',
                         opacity: disabled ? 0.4 : 1,
                       }}
-                      onClick={() => { setTargetOpacity(100) }}>
+                      onClick={() => { setTargetOpacity(targetDefaultOpacity) }}>
                       {t('petSizeReset')}
                     </button>
                   )

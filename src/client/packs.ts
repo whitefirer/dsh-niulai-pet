@@ -95,6 +95,8 @@ export interface PackSkinDef {
   quips?: string[]
   /** 默认显示高度 px（72-200；选用该皮肤时大小滑杆落到它，用户另行调整优先）。 */
   defaultSize?: number
+  /** 默认不透明度 %（20-100；选用该皮肤时透明度落到它，用户另行调整优先；缺省 100）。 */
+  defaultOpacity?: number
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -237,6 +239,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     shoutBubble: skin.shoutBubble ?? char.name,
     quips: [...char.quips ?? [], ...skin.quips ?? []],
     defaultSize: skin.defaultSize ?? 120,
+    ...(skin.defaultOpacity !== undefined ? { defaultOpacity: skin.defaultOpacity } : {}),
     ...(skin.jelly === true ? { jelly: true } : {}),
   }
 }
@@ -500,6 +503,12 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         if (Number.isInteger(n) && n >= 72 && n <= 200) defaultSize = n
         else errors.push(`${at}.size: 必须 72~200 的整数，收到 ${JSON.stringify(s.size)}`)
       }
+      let defaultOpacity: number | undefined
+      if (s.opacity !== undefined) {
+        const n = typeof s.opacity === 'number' ? s.opacity : NaN
+        if (Number.isInteger(n) && n >= 20 && n <= 100) defaultOpacity = n
+        else errors.push(`${at}.opacity: 必须 20~100 的整数，收到 ${JSON.stringify(s.opacity)}`)
+      }
       const jelly = s.jelly === true
 
       if (standOk) {
@@ -513,6 +522,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(shoutBubble !== undefined ? { shoutBubble } : {}),
           ...(squips.length > 0 ? { quips: squips } : {}),
           ...(defaultSize !== undefined ? { defaultSize } : {}),
+          ...(defaultOpacity !== undefined ? { defaultOpacity } : {}),
           ...(jelly ? { jelly: true } : {}),
         })
       }

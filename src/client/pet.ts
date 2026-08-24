@@ -74,6 +74,8 @@ export interface SkinDef {
   quips?: string[]
   /** 默认显示高度 px（角色包声明；选用该皮肤时大小落到它，用户另行调整优先）。 */
   defaultSize?: number
+  /** 默认不透明度 %（角色包声明，20-100；选用该皮肤时透明度落到它，用户另行调整优先；缺省 100）。 */
+  defaultOpacity?: number
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -90,7 +92,11 @@ export interface PetAssets {
   /** 皮肤的事件默认绑定（角色包 events 声明；缺省 done=signature / poke=hops）。 */
   defaultActions?: (skinGid: string) => { done: ActionName; poke: ActionName }
   /** 「点预览图高亮」事件通道（设置卡片发，按 petId 认领）。 */
-  highlight?: { subscribe(fn: (petId: string) => void): () => void }
+  highlight?: {
+    subscribe(fn: (petId: string) => void): () => void
+    /** 驻留高亮通道（卡片「当前桌宠」tab 期间持续发光；null=解除）。 */
+    subscribeHold?(fn: (petId: string | null) => void): () => void
+  }
   /** 强制皮肤/大小（demo 全家福等展示性挂载：绕开配置解析，直接长这样）。 */
   forceSkin?: string
   forceSize?: number
@@ -344,18 +350,23 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 本宠色相：主宠读 petHue；额外表读各自条目 hue（缺省 0=原色）。 */
   const myHue = (c: PetConfig): number =>
     petId === 'main' ? c.petHue : (c.extraPets.find((p) => p.id === petId)?.hue ?? 0)
-  /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省 100）。 */
+  /** 本宠不透明度：主宠读 petOpacity；额外表读各自条目 opacity（缺省回皮肤包声明的默认，再缺省 100）。 */
   const myOpacity = (c: PetConfig): number =>
-    petId === 'main' ? c.petOpacity : (c.extraPets.find((p) => p.id === petId)?.opacity ?? 100)
+    petId === 'main'
+      ? c.petOpacity
+      : (c.extraPets.find((p) => p.id === petId)?.opacity
+          ?? skins.find((s) => s.id === mySkinId(c))?.defaultOpacity ?? 100)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
-   *  换皮肤时大小落到新皮肤的默认（用户之后再调优先；皮肤高矮是外观固有属性）。 */
+   *  换皮肤时大小/不透明度落到新皮肤的默认（用户之后再调优先；皮肤高矮质感是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
-    const size = skins.find((s) => s.id === skin)?.defaultSize ?? 120
+    const def = skins.find((s) => s.id === skin)
+    const size = def?.defaultSize ?? 120
+    const opacity = def?.defaultOpacity ?? 100
     if (petId === 'main') {
-      config.set({ skin, petSize: size })
+      config.set({ skin, petSize: size, petOpacity: opacity })
       return
     }
-    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size } : p)
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity } : p)
     config.set({ extraPets: list })
   }
   /** 写本宠色相：主宠写 petHue；额外表读-改-写自己的条目。 */
@@ -1831,6 +1842,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (mood === 'idle') void hop(30, 320)
   })
 
+  // 设置卡片「当前桌宠」tab 驻留高亮：持续金色发光，解除后恢复默认投影
+  const DEFAULT_SHADOW = 'drop-shadow(0 3px 6px rgba(0,0,0,.35))'
+  const HOLD_SHADOW = 'drop-shadow(0 0 16px rgba(242,177,56,.95))'
+  const unsubHold = assets.highlight?.subscribeHold?.((id) => {
+    if (destroyed) return
+    root.style.filter = id === petId ? HOLD_SHADOW : DEFAULT_SHADOW
+  })
+
   return {
     celebrate,
     poke,
@@ -1859,6 +1878,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       unsubConfig()
       unsubSkins?.()
       unsubHighlight?.()
+      unsubHold?.()
       unregisterBody?.()
       if (fallRaf !== 0) cancelAnimationFrame(fallRaf)
       keeper.disconnect()

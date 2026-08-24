@@ -67,7 +67,9 @@ src/client/card.tsx   设置卡片：React 组件 + CardController + 自定义�
 src/client/demo.ts    standalone 试玩页入口：复用 SKINS + mountPet，模拟任务驱动庆祝（全员广播）、
                       角标区（一起飞/全家福/包试玩/语音/隐藏/静音）
 src/client/family.ts  全家福排布共享模块：阵容常量 + layoutUniform/layoutLayered（demo 与插件共用）
-src/client/highlight.ts 预览图高亮总线（card 点预览图 → 对应 pet 发光+小跳，按 petId 认领）
+src/client/highlight.ts 预览图高亮总线（card 点预览图 → 对应 pet 发光+小跳，按 petId 认领；
+                      另有 setHold/releaseHold 驻留高亮：卡片「当前桌宠」tab 展开期间选中桌宠
+                      持续金色发光，切 tab/换对象/收起/关面板即 release 恢复默认投影）
 ```
 
 **SkinDef（pet.ts）**：`{ id, name, image, imageBlink?, imageShout?, shoutAnim?, imageFly?,
@@ -155,6 +157,9 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 （奶龙 155，其余内置 120；自定义包 pack.json 皮肤级 `size` 字段），
 换皮肤（菜单/卡片同语义）大小落到新皮肤默认，用户再调优先；设置卡片
 大小是滑杆（72-200），多只时「配置对象」选择器带皮肤预览图选按只调。
+**不透明度**：皮肤可声明 `defaultOpacity`（自定义包 `opacity` 字段，20-100；
+如史莱姆 90），换皮肤/新建额外表时透明度落到它（额外表条目缺省也回退它），
+用户再调优先；滑杆/重置按钮同样以皮肤默认值为基准。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
