@@ -471,12 +471,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   img.src = skinIdle()
   img.draggable = false
   img.style.cssText = `height:${petH}px;display:block;position:relative;transform-origin:50% 100%;pointer-events:none`
-  // 红温剪影层：当前图作 alpha 蒙版盖纯红（蓝皮滤镜拉不红，靠它真变红）；
+  // 红温剪影层：当前图作 alpha 蒙版盖红（mix-blend-mode:color 只换色相保明暗——
+  // 蓝皮滤镜拉不红，靠它变成有层次的"真红"而非平红膜）；
   // 蒙版在 cycleTimer 拍里跟随 img.src（最多 90ms 滞后），透明度 = 火气
   const heatLayer = document.createElement('div')
   heatLayer.style.cssText = [
     'position:absolute', 'inset:0', 'pointer-events:none', 'opacity:0',
-    'background:rgb(255,60,45)',
+    'background:rgb(255,60,45)', 'mix-blend-mode:color',
     '-webkit-mask-repeat:no-repeat', 'mask-repeat:no-repeat',
     '-webkit-mask-position:bottom center', 'mask-position:bottom center',
     '-webkit-mask-size:auto 100%', 'mask-size:auto 100%',
@@ -519,12 +520,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
   }, 90)
 
-  // ---- 连戳红温：连续戳积累火气（每戳 +0.25，平时缓慢消退），满格爆发一次：
-  // 哼一句 + 扭头背过去（爆发即泄火；爆发中与点爆的那一戳都不演正常戳反应=不理人）。 ----
+  // ---- 连戳红温：连续戳积累火气（每戳 +0.3，平时缓慢消退），满格爆发一次：
+  // 哼一句 + 扭头背过去 + 4s 气头冷却（期间戳也白戳、不积新火）。
+  // 爆发**不清火**——旧火按原速自然消退（慢慢退红，不是瞬间变脸）。 ----
+  let rageCooldownUntil = 0
   const rage = async (): Promise<void> => {
     raging = true
-    heat = 0
-    applyImgFilter()
+    rageCooldownUntil = Date.now() + 4000
     showBubble('再戳我急了！', 2200)
     facing = facing === 1 ? -1 : 1 // 扭头背过去
     applyX()
@@ -541,6 +543,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
   /** 积火气；返回 true = 这一戳把火气点爆了（调用方只演爆发，不演正常戳反应）。 */
   const addHeat = (): boolean => {
+    if (Date.now() < rageCooldownUntil) return false // 气头上：戳也白戳
     heat = Math.min(1, heat + 0.3)
     applyImgFilter()
     if (heat >= 1 && !raging) { void rage(); return true }
@@ -1553,6 +1556,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
    *  红温：爆发中不理人；这一戳把火气点爆了也只演爆发（扭头哼唧），不演正常戳反应。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed || raging) return
+    if (Date.now() < rageCooldownUntil) return // 气头上不理人
     if (addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
