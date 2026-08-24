@@ -945,8 +945,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (destroyed) { cleanupSplit(); return }
     playVoice() // 裂开一声（squeak/moo/采样，随皮肤音色；静音自吞）
 
-    const miniH = Math.max(36, Math.round(petH * 0.45))
     const n = Math.random() < 0.5 ? 2 : 3
+    // 克隆身高按面积守恒：原高/√n（2 只≈71%、3 只≈58%）——看上去合体后正好还原大史莱姆
+    const miniH = Math.max(36, Math.round(petH / Math.sqrt(n)))
     const scatterDur = 2100
     for (let i = 0; i < n; i++) {
       const el = document.createElement('div')

@@ -163,12 +163,13 @@ card→pet 按 petId 认领）。皮肤列表热更新重解析必须走 `mySkin
 `defaultHue`（自定义包 `hue` 字段，0-360，缺省 0=原色），换肤即落。
 
 **动作 `split`（分裂）**：史莱姆签名动作，轻量克隆版——主图一压隐身
-（根节点拒拖），2~3 个纯 DOM 克隆（45% 身高，不挂状态机/不进物理/不写配置）
+（根节点拒拖），2~3 个纯 DOM 克隆（身高 = 原高/√n：2 只≈71%、3 只≈58%，
+面积守恒，合体视觉还原；不挂状态机/不进物理/不写配置）
 错峰散开三连跳（落地压扁空中拉长），眨眼=定时换 src，再聚拢缩小合体，
 主图走 landSquash 果冻弹回；裂开/合体各放一声角色音。克隆全部挂载在
 `splitClones`，destroy/中途异常走 `cleanupSplit` 兜底还原（可见性/拖拽/计时器）。
 注意：分裂中主宠 root 也是 `body>div` + pointer-events:none + 有 img，
-写 DOM 探测脚本时会被误判成克隆（按 imgH=54px 区分）。
+写 DOM 探测脚本时会被误判成克隆（按 img 高度 ≠ 主宠高区分）。
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
