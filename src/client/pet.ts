@@ -2349,7 +2349,17 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   // 局部镜像；皮肤变化换装；菜单开着时就地重建刷新显示值
   const syncConfig = (): void => {
     const c = config.getSnapshot()
-    muted = c.muted
+    if (c.muted !== muted) {
+      muted = c.muted
+      // 静音即时生效：掐断在播叫声 + 增益归零；解除恢复增益（滑杆/路由全走 volNode）
+      if (muted) {
+        playingAudio?.pause()
+        cutPlayingShout()
+        if (volNode !== null) volNode.gain.value = 0
+      } else if (volNode !== null) {
+        volNode.gain.value = masterVolume / 100
+      }
+    }
     shoutOnDone = c.shoutOnDone
     talkative = c.talkative
     shoutCount = c.shoutCount
