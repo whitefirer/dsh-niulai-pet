@@ -405,13 +405,18 @@ function synthEngine(ctx: AudioContext): void {
   make('square', 34, 72, 0.14, 0.95)
 }
 
-/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 + 排气破音噪声扫频。 */
+/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 松油门转速回落泄油（音高+音量都落）。 */
 function synthMotor(ctx: AudioContext): void {
   const t0 = ctx.currentTime
-  const dur = 1.15
-  // 转速滑行曲线：怠速 85Hz → 全油门 ~300Hz（幂进上拉有"轰起来"感）
-  const fCurve = new Float32Array(64)
-  for (let i = 0; i < 64; i++) fCurve[i] = 85 + Math.pow(i / 63, 1.6) * 215
+  const dur = 1.5
+  // 转速曲线：0-0.85 拉起（85→300Hz），0.85-1.5 松油门回落（300→150Hz）
+  const fCurve = new Float32Array(96)
+  for (let i = 0; i < 96; i++) {
+    const t = i / 95
+    fCurve[i] = t < 0.57
+      ? 85 + Math.pow(t / 0.57, 1.6) * 215
+      : 300 - ((t - 0.57) / 0.43) * 150
+  }
   const out = ctx.createGain()
   const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
     const osc = ctx.createOscillator()
@@ -424,13 +429,13 @@ function synthMotor(ctx: AudioContext): void {
     const g = ctx.createGain()
     g.gain.value = vol
     osc.connect(lp); lp.connect(g); g.connect(out)
-    osc.start(t0); osc.stop(t0 + dur + 0.3)
+    osc.start(t0); osc.stop(t0 + dur + 0.4)
   }
   attach('sawtooth', 0.34, 1, 900)      // 主腔（四冲程）
   attach('square', 0.2, 0.5, 400)       // 低吼亚谐
   attach('sawtooth', 0.12, 1.012, 1400) // 失谐第二嗓（双缸感）
   attach('square', 0.06, 2.0, 2600)     // 高转啸
-  // 排气破音：白噪带通随转速上扫（炸街的灵魂）
+  // 排气破音：白噪带通随转速上追回落（炸街的灵魂）
   const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
   const d = buf.getChannelData(0)
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
@@ -439,20 +444,23 @@ function synthMotor(ctx: AudioContext): void {
   const bp = ctx.createBiquadFilter()
   bp.type = 'bandpass'
   bp.Q.value = 1.1
-  const bpCurve = new Float32Array(48)
-  for (let i = 0; i < 48; i++) bpCurve[i] = 550 + Math.pow(i / 47, 1.5) * 1600
-  bp.frequency.setValueCurveAtTime(bpCurve, t0, 0.9)
+  const bpCurve = new Float32Array(72)
+  for (let i = 0; i < 72; i++) {
+    const t = i / 71
+    bpCurve[i] = t < 0.57 ? 550 + Math.pow(t / 0.57, 1.5) * 1600 : 2150 - ((t - 0.57) / 0.43) * 1400
+  }
+  bp.frequency.setValueCurveAtTime(bpCurve, t0, dur)
   const nGain = ctx.createGain()
   nGain.gain.value = 0.45
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
-  noise.start(t0); noise.stop(t0 + dur + 0.3)
-  // 总包络：音头 0.1s 起、咆哮段保持、泄油**指数衰减**收尾（线性切尾有"啪"的切断感）
+  noise.start(t0); noise.stop(t0 + dur + 0.4)
+  // 总包络：音头起 → 咆哮保持 → 松油门指数泄油（音量衰减配合音高回落才有真实冲刷感）
   out.connect(volDest(ctx))
   out.gain.setValueAtTime(0, t0)
   out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
-  out.gain.setValueAtTime(0.42, t0 + 0.85)
-  out.gain.setTargetAtTime(0.26, t0 + 0.85, 0.1)
-  out.gain.setTargetAtTime(0, t0 + 1.05, 0.16)
+  out.gain.setValueAtTime(0.42, t0 + 0.8)
+  out.gain.setTargetAtTime(0.3, t0 + 0.8, 0.12)
+  out.gain.setTargetAtTime(0, t0 + 1.05, 0.22)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
@@ -915,7 +923,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (v === 'meow') { synthMeow(ctx); return 800 }
     if (v === 'crackle') { synthCrackle(ctx); return 700 }
     if (v === 'engine') { synthEngine(ctx); return 950 }
-    if (v === 'motor') { synthMotor(ctx); return 1150 }
+    if (v === 'motor') { synthMotor(ctx); return 1500 }
     if (v === 'siren') { synthSiren(ctx); return 3600 }
     synthSqueak(ctx)
     return 450
@@ -1641,8 +1649,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
           nx = (dir === 1 ? window.innerWidth + off : -off) + (homeX - (dir === 1 ? window.innerWidth + off : -off)) * e
         }
         x = nx
+        // 前段平开；0.64 起在屏幕外**调头**（朝行进方向），回归段逆向前进 = 掉头开回来
+        const f = t >= 0.64 ? (dir === 1 ? -1 : 1) : dir
+        if (f !== facing) {
+          facing = f
+          root.style.setProperty('--face', String(f))
+        }
         let rot = 0
-        // 前段平开；回归段才演冲线庆祝（wheelie 抬前轮 / wiggle 摇头；镜像父级内不乘 dir）
+        // 回归段才演冲线庆祝（wheelie 抬前轮 / wiggle 摇头；镜像父级内不乘 dir）
         if (t >= 0.64) {
           if (style === 'wheelie') rot = -24
           else if (style === 'wiggle') rot = Math.sin((t - 0.64) * Math.PI * 21) * 9
