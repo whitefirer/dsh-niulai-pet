@@ -405,17 +405,17 @@ function synthEngine(ctx: AudioContext): void {
   make('square', 34, 72, 0.14, 0.95)
 }
 
-/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 松油门转速回落泄油（音高+音量都落）。 */
+/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 快放油（转速+音量同跌）→ 短怠速尾。 */
 function synthMotor(ctx: AudioContext): void {
   const t0 = ctx.currentTime
-  const dur = 1.5
-  // 转速曲线：0-0.85 拉起（85→300Hz），0.85-1.5 松油门回落（300→150Hz）
-  const fCurve = new Float32Array(96)
-  for (let i = 0; i < 96; i++) {
-    const t = i / 95
-    fCurve[i] = t < 0.57
-      ? 85 + Math.pow(t / 0.57, 1.6) * 215
-      : 300 - ((t - 0.57) / 0.43) * 150
+  const dur = 1.1
+  // 转速曲线：0-0.68 拉起（85→290Hz），0.68-0.88 快速放油（290→135），0.88-1.1 怠速微颤回落
+  const fCurve = new Float32Array(80)
+  for (let i = 0; i < 80; i++) {
+    const t = i / 79
+    if (t < 0.62) fCurve[i] = 85 + Math.pow(t / 0.62, 1.6) * 205
+    else if (t < 0.8) fCurve[i] = 290 - ((t - 0.62) / 0.18) * 155
+    else fCurve[i] = 135 - ((t - 0.8) / 0.2) * 12 + Math.sin(t * 40) * 3
   }
   const out = ctx.createGain()
   const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
@@ -423,13 +423,15 @@ function synthMotor(ctx: AudioContext): void {
     osc.type = type
     osc.frequency.setValueAtTime(85 * mul, t0)
     osc.frequency.setValueCurveAtTime(fCurve, t0, dur)
+    // 曲线终点钉住末值——不钉会被后面的 setValueAtTime(起始值) 接管，尾端闪一下音高回跳（踩过）
+    osc.frequency.setValueAtTime(135 * mul, t0 + dur)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.value = lpHz
     const g = ctx.createGain()
     g.gain.value = vol
     osc.connect(lp); lp.connect(g); g.connect(out)
-    osc.start(t0); osc.stop(t0 + dur + 0.4)
+    osc.start(t0); osc.stop(t0 + dur + 0.15)
   }
   attach('sawtooth', 0.34, 1, 900)      // 主腔（四冲程）
   attach('square', 0.2, 0.5, 400)       // 低吼亚谐
@@ -444,25 +446,26 @@ function synthMotor(ctx: AudioContext): void {
   const bp = ctx.createBiquadFilter()
   bp.type = 'bandpass'
   bp.Q.value = 1.1
-  const bpCurve = new Float32Array(72)
-  for (let i = 0; i < 72; i++) {
-    const t = i / 71
-    bpCurve[i] = t < 0.57 ? 550 + Math.pow(t / 0.57, 1.5) * 1600 : 2150 - ((t - 0.57) / 0.43) * 1400
+  const bpCurve = new Float32Array(60)
+  for (let i = 0; i < 60; i++) {
+    const t = i / 59
+    if (t < 0.62) bpCurve[i] = 550 + Math.pow(t / 0.62, 1.5) * 1600
+    else bpCurve[i] = 2150 - ((t - 0.62) / 0.38) * 1500
   }
   bp.frequency.setValueCurveAtTime(bpCurve, t0, dur)
+  bp.frequency.setValueAtTime(650, t0 + dur) // 同上：钉住不回跳
   const nGain = ctx.createGain()
   nGain.gain.value = 0.45
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
-  noise.start(t0); noise.stop(t0 + dur + 0.4)
-  // 总包络：音头起 → 咆哮保持 → 松油门泄油（精确归零的两段斜坡；不能用 setTargetAtTime(0)——
-  // 它渐近趋零永远到不了 0，源头 stop 时残留 ~5% 被硬切断 = 结尾突出的那一声）
+  noise.start(t0); noise.stop(t0 + dur + 0.15)
+  // 总包络：音头起 → 咆哮保持 → 快放油 → 短怠速尾 → 精确归零（源头停时增益已是 0）
   out.connect(volDest(ctx))
   out.gain.setValueAtTime(0, t0)
   out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
-  out.gain.setValueAtTime(0.42, t0 + 0.8)
-  out.gain.linearRampToValueAtTime(0.3, t0 + 1.15)
-  out.gain.linearRampToValueAtTime(0.08, t0 + 1.45)
-  out.gain.linearRampToValueAtTime(0, t0 + 1.66)
+  out.gain.setValueAtTime(0.42, t0 + 0.66)
+  out.gain.linearRampToValueAtTime(0.16, t0 + 0.9)
+  out.gain.linearRampToValueAtTime(0.05, t0 + 1.0)
+  out.gain.linearRampToValueAtTime(0, t0 + 1.1)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
@@ -925,7 +928,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (v === 'meow') { synthMeow(ctx); return 800 }
     if (v === 'crackle') { synthCrackle(ctx); return 700 }
     if (v === 'engine') { synthEngine(ctx); return 950 }
-    if (v === 'motor') { synthMotor(ctx); return 1500 }
+    if (v === 'motor') { synthMotor(ctx); return 1100 }
     if (v === 'siren') { synthSiren(ctx); return 3600 }
     synthSqueak(ctx)
     return 450
