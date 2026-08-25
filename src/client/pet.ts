@@ -405,27 +405,54 @@ function synthEngine(ctx: AudioContext): void {
   make('square', 34, 72, 0.14, 0.95)
 }
 
-/** 摩托高转：音区整体上移 + 更快上拉，一听就是两轮车。 */
+/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 + 排气破音噪声扫频。 */
 function synthMotor(ctx: AudioContext): void {
   const t0 = ctx.currentTime
-  const make = (type: OscillatorType, f0: number, f1: number, vol: number, stopAt: number): void => {
+  const dur = 1.15
+  // 转速滑行曲线：怠速 85Hz → 全油门 ~300Hz（幂进上拉有"轰起来"感）
+  const fCurve = new Float32Array(64)
+  for (let i = 0; i < 64; i++) fCurve[i] = 85 + Math.pow(i / 63, 1.6) * 215
+  const out = ctx.createGain()
+  const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
     const osc = ctx.createOscillator()
     osc.type = type
-    osc.frequency.setValueAtTime(f0, t0)
-    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.2)
+    osc.frequency.setValueAtTime(85 * mul, t0)
+    osc.frequency.setValueCurveAtTime(fCurve, t0, dur)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
-    lp.frequency.value = 1400
+    lp.frequency.value = lpHz
     const g = ctx.createGain()
-    g.gain.setValueAtTime(0.0001, t0)
-    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.04)
-    g.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + 0.4)
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + stopAt)
-    osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
-    osc.start(t0); osc.stop(t0 + stopAt)
+    g.gain.value = vol
+    osc.connect(lp); lp.connect(g); g.connect(out)
+    osc.start(t0); osc.stop(t0 + dur + 0.05)
   }
-  make('triangle', 130, 300, 0.18, 0.8)
-  make('sawtooth', 65, 150, 0.12, 0.8)
+  attach('sawtooth', 0.34, 1, 900)      // 主腔（四冲程）
+  attach('square', 0.2, 0.5, 400)       // 低吼亚谐
+  attach('sawtooth', 0.12, 1.012, 1400) // 失谐第二嗓（双缸感）
+  attach('square', 0.06, 2.0, 2600)     // 高转啸
+  // 排气破音：白噪带通随转速上扫（炸街的灵魂）
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  const noise = ctx.createBufferSource()
+  noise.buffer = buf
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 1.1
+  const bpCurve = new Float32Array(48)
+  for (let i = 0; i < 48; i++) bpCurve[i] = 550 + Math.pow(i / 47, 1.5) * 1600
+  bp.frequency.setValueCurveAtTime(bpCurve, t0, 0.9)
+  const nGain = ctx.createGain()
+  nGain.gain.value = 0.45
+  noise.connect(bp); bp.connect(nGain); nGain.connect(out)
+  noise.start(t0); noise.stop(t0 + dur + 0.05)
+  // 总包络：音头 0.1s 起、咆哮段保持、泄油收尾
+  out.connect(volDest(ctx))
+  out.gain.setValueAtTime(0, t0)
+  out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
+  out.gain.setValueAtTime(0.42, t0 + 0.85)
+  out.gain.linearRampToValueAtTime(0.25, t0 + 1.05)
+  out.gain.linearRampToValueAtTime(0, t0 + dur)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
@@ -888,7 +915,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (v === 'meow') { synthMeow(ctx); return 800 }
     if (v === 'crackle') { synthCrackle(ctx); return 700 }
     if (v === 'engine') { synthEngine(ctx); return 950 }
-    if (v === 'motor') { synthMotor(ctx); return 800 }
+    if (v === 'motor') { synthMotor(ctx); return 1150 }
     if (v === 'siren') { synthSiren(ctx); return 3600 }
     synthSqueak(ctx)
     return 450
@@ -2137,6 +2164,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     | { kind: 'action'; label: string; fn: () => void }
     | { kind: 'slider'; label: string; value: number; min: number; max: number; unit: string; fn: (v: number) => void; preview: (v: number) => void }
     | { kind: 'vol'; label: string; muted: boolean; volume: number; fn: (v: number) => void; preview: (v: number) => void; onMute: () => void }
+    | { kind: 'skins'; label: string; options: Array<{ id: string; name: string }>; fn: (id: string) => void }
 
   /** 菜单即乐园：只留高频开关/动作；低频配置（完成喊几声/打盹/碰撞/动作绑定等）全归设置面板。 */
   const rebuildMenu = (): void => {
@@ -2165,7 +2193,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         preview: (v) => { petOpacity = v; applyImgFilter() },
       },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
-      { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
+      { kind: 'skins', label: '🎨 皮肤', options: skins.map((s) => ({ id: s.id, name: s.name })), fn: (id) => { setMySkin(id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (animAllows('signature')) runAction('signature') } },
       ...(assets.onFamilyToggle !== undefined
@@ -2263,10 +2291,24 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         wrap.appendChild(val)
         row.appendChild(wrap)
       }
+      if (r.kind === 'skins') {
+        // 皮肤下拉：选即换（换肤写配置 → 菜单就地重建刷新显示值）
+        const sel = document.createElement('select')
+        for (const o of r.options) {
+          const op = document.createElement('option')
+          op.value = o.id
+          op.textContent = o.name
+          sel.appendChild(op)
+        }
+        sel.value = skin.id
+        sel.style.cssText = 'font-size:12px;background:#27272a;color:#e4e4e7;border:1px solid #3f3f46;border-radius:6px;padding:2px 6px;max-width:130px'
+        sel.addEventListener('change', () => { r.fn(sel.value) })
+        row.appendChild(sel)
+      }
       row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,.12)' }
       row.onmouseleave = () => { row.style.background = '' }
       row.onclick = () => {
-        if (r.kind === 'slider' || r.kind === 'vol') return // 滑杆/音量交互在 input 上，点行不动作不收菜单
+        if (r.kind === 'slider' || r.kind === 'vol' || r.kind === 'skins') return // 滑杆/音量/下拉交互在控件上，点行不动作不收菜单
         r.fn()
         if (r.kind === 'action') {
           closeMenu()
