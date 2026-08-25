@@ -2123,6 +2123,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       {
+        kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
+        fn: setMySize,
+        // 预览只动镜头（视觉即时反馈）；帧缓存/预读留给 syncConfig 落盘后统一做
+        preview: (v) => { petH = v; root.style.height = `${v}px`; img.style.height = `${v}px` },
+      },
+      {
         kind: 'slider', label: '🌈 色相', value: petHue, min: 0, max: 360, unit: '°',
         fn: setMyHue,
         preview: (v) => { petHue = v; applyImgFilter() },
@@ -2131,12 +2137,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         kind: 'slider', label: '🌫 透明度', value: petOpacity, min: 20, max: 100, unit: '%',
         fn: setMyOpacity,
         preview: (v) => { petOpacity = v; applyImgFilter() },
-      },
-      {
-        kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
-        fn: setMySize,
-        // 预览只动镜头（视觉即时反馈）；帧缓存/预读留给 syncConfig 落盘后统一做
-        preview: (v) => { petH = v; root.style.height = `${v}px`; img.style.height = `${v}px` },
       },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
@@ -2152,7 +2152,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const extraList = config.getSnapshot().extraPets
     const maxExtras = config.getSnapshot().maxPets - 1
     if (petId === 'main' && extraList.length < maxExtras) {
-      rows.splice(4, 0, {
+      rows.splice(5, 0, {
         kind: 'action', label: '🐾 再添一只', fn: () => {
           const c = config.getSnapshot()
           if (c.extraPets.length >= c.maxPets - 1) return
@@ -2162,7 +2162,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       })
     }
     if (petId !== 'main') {
-      rows.splice(4, 0, {
+      rows.splice(5, 0, {
         kind: 'action', label: '🗑 送走这只', fn: () => {
           const c = config.getSnapshot()
           config.set({ extraPets: c.extraPets.filter((p) => p.id !== petId) })
