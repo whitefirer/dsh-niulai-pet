@@ -64,6 +64,11 @@ export interface SkinDef {
   /** 警灯甲/乙帧（可选，成对出现；待机时 480ms 交替闪，如警车红蓝警灯）。 */
   imageLampA?: string
   imageLampB?: string
+  /** 警灯待机交替开关（默认 true 开；设 false = 平时不闪、仅 drive 时快速交替）。 */
+  lampIdle?: boolean
+  /** drive 时灯帧快速交替（图片的警灯闪，180ms 翻相位）。 */
+  /** drive 期间专属声（如 'siren' 警笛；无则按 voice 拉长做引擎低吼）。 */
+  driveSound?: VoiceName
   /** 卷形图（可选；roll 动作专用——犰狳卷成球滚动时换成它，车轮式旋转）。 */
   imageRoll?: string
   /** drive 动作图（可选；开车横穿时换它——如火焰骷髅骑士第二帧狂焰状态，平时用站姿）。 */
@@ -745,7 +750,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const lampTimer = window.setInterval(() => {
     if (destroyed) return
     const s = cur()
-    if (s.imageLampA === undefined || s.imageLampB === undefined) return
+    if (s.imageLampA === undefined || s.imageLampB === undefined || s.lampIdle === false) return
     lampOn = !lampOn
     if ((mood === 'idle' || mood === 'walk') && !shouting && !animRolling) {
       img.src = skinIdle()
@@ -1642,9 +1647,25 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
     facing = dir
     root.style.setProperty('--face', String(dir))
-    driveEngine(3.5) // 全程引擎声（到停车才泄油；戳出去的短促轰鸣另由 shout 叠加）
+    // 声音：driveSound（如警笛）优先，否则按 voice 拉长做全程引擎（驶出吼→巡航→到站泄油）
+    if (s.driveSound !== undefined && !muted && masterVolume > 0) {
+      const ctx = audioCtx()
+      if (ctx !== null) playSynthVoice(s.driveSound)
+    } else {
+      driveEngine(3.5)
+    }
     const style = s.driveStyle === 'random' ? (Math.random() < 0.5 ? 'wheelie' : 'wiggle') : s.driveStyle ?? 'normal'
-    if (s.imageDrive !== undefined) { img.src = s.imageDrive; driving = true } // 开车图（如骑士狂焰帧）；结束还原
+    // 开车灯闪：有 lamp 对且没 imageDrive 时，drive 全程 180ms 快速交替（平时 lampIdle=false 不闪）
+    let driveLampTimer = 0
+    if (s.imageLampA !== undefined && s.imageLampB !== undefined && s.imageDrive === undefined) {
+      driveLampTimer = window.setInterval(() => {
+        lampOn = !lampOn
+        if (!destroyed && mood === 'fly') img.src = lampOn ? cur().imageLampA as string : cur().imageLampB as string
+      }, 180)
+    } else if (s.imageDrive !== undefined) {
+      img.src = s.imageDrive
+      driving = true
+    }
     const w = root.getBoundingClientRect().width
     const off = w + 40
     const start = performance.now()
@@ -1689,6 +1710,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (mood !== 'fly') return
     x = homeX
     // 停在哪就朝哪：保留回归段朝向（不还原开车前朝向——到家瞬间翻头很出戏）
+    if (driveLampTimer !== 0) window.clearInterval(driveLampTimer)
     img.style.transform = ''
     img.src = skinIdle()
     driving = false // 开车图用完还原（顺序：防 mouthShut 在还原前的余缝里踩图）

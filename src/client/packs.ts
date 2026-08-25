@@ -112,6 +112,10 @@ export interface PackSkinDef {
   splitCount?: number
   /** drive 演出风格（normal/wheelie/wiggle/random）。 */
   driveStyle?: 'normal' | 'wheelie' | 'wiggle' | 'random'
+  /** 警灯待机交替开关（false = 平时不闪，drive 时快速交替）。 */
+  lampIdle?: boolean
+  /** drive 期间专属声（如 siren 警笛）。 */
+  driveSound?: VoiceName
   /** 完成路径专属合成音色（如 siren 警笛）。 */
   doneVoice?: VoiceName
   /** 完成路径专属采样（mp3 dataurl）。 */
@@ -269,6 +273,8 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     ...(skin.defaultHueCycle === true ? { defaultHueCycle: true } : {}),
     ...(skin.splitCount !== undefined ? { splitCount: skin.splitCount } : {}),
     ...(skin.driveStyle !== undefined ? { driveStyle: skin.driveStyle } : {}),
+    ...(skin.lampIdle === false ? { lampIdle: false } : {}),
+    ...(skin.driveSound !== undefined ? { driveSound: skin.driveSound } : {}),
     ...(skin.doneVoice !== undefined ? { doneVoice: skin.doneVoice } : {}),
     ...((skin.doneSounds?.length ?? 0) > 0 ? { doneSounds: skin.doneSounds } : {}),
     ...(skin.halo === true ? { halo: true } : {}),
@@ -302,6 +308,8 @@ export class PackParseError extends Error {
 }
 
 const ACTIONS: readonly string[] = ['signature', 'fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'drive', 'random']
+/** 内置合成音色（voice.preset / doneVoice / driveSound 共用枚举）。 */
+const VOICE_PRESETS = ['moo', 'squeak', 'whale', 'meow', 'crackle', 'engine', 'motor', 'siren'] as const
 const ID_RE = /^[a-z0-9-]{2,32}$/
 const SKIN_ID_RE = /^[a-z0-9-]{1,32}$/
 const IMG_EXT = /\.(png|webp)$/
@@ -539,9 +547,15 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
       }
       let doneVoice: VoiceName | undefined
       if (s.doneVoice !== undefined) {
-        if (typeof s.doneVoice === 'string' && ['moo', 'squeak', 'whale', 'meow', 'crackle', 'engine', 'motor', 'siren'].includes(s.doneVoice)) {
+        if (typeof s.doneVoice === 'string' && (VOICE_PRESETS as readonly string[]).includes(s.doneVoice)) {
           doneVoice = s.doneVoice as VoiceName
         } else errors.push(`${at}.doneVoice: 只支持内置合成音色，收到 ${JSON.stringify(s.doneVoice)}`)
+      }
+      let driveSound: VoiceName | undefined
+      if (s.driveSound !== undefined) {
+        if (typeof s.driveSound === 'string' && (VOICE_PRESETS as readonly string[]).includes(s.driveSound)) {
+          driveSound = s.driveSound as VoiceName
+        } else errors.push(`${at}.driveSound: 只支持内置合成音色，收到 ${JSON.stringify(s.driveSound)}`)
       }
       const doneSounds: string[] = []
       if (s.doneSounds !== undefined) {
@@ -598,6 +612,8 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(defaultHueCycle ? { defaultHueCycle: true } : {}),
           ...(splitCount !== undefined ? { splitCount } : {}),
           ...(driveStyle !== undefined ? { driveStyle } : {}),
+          ...(s.lampIdle === false ? { lampIdle: false } : {}),
+          ...(driveSound !== undefined ? { driveSound } : {}),
           ...(doneVoice !== undefined ? { doneVoice } : {}),
           ...(doneSounds.length > 0 ? { doneSounds } : {}),
           ...(s.halo === true ? { halo: true } : {}),
