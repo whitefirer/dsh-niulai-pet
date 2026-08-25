@@ -2123,7 +2123,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const rows: Row[] = [
       // 音量=静音按钮+滑杆合并：静音显示 0 但值保留；滑到 0 自动静音、拉高自动解除
       { kind: 'vol', label: '📢 音量', muted, volume: masterVolume, fn: (v) => { config.set({ volume: v, muted: v === 0 }) }, preview: (v) => { masterVolume = v; if (volNode !== null) volNode.gain.value = v / 100 }, onMute: () => { config.set({ muted: !muted }) } },
-      { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       {
         kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
         fn: setMySize,
@@ -2140,6 +2139,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         fn: setMyOpacity,
         preview: (v) => { petOpacity = v; applyImgFilter() },
       },
+      { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (animAllows('signature')) runAction('signature') } },
