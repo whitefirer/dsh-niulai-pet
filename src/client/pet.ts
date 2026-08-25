@@ -577,6 +577,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let heatOn = initCfg.heatEnabled
   let hiddenAll = initCfg.hidden
   masterVolume = initCfg.volume
+  /** 配置音量镜像（syncConfig 与之比较判变；不被菜单 preview 污染）。 */
+  let configVolume = initCfg.volume
   let voiceControlOn = initCfg.voiceControl
   let micDeviceId = initCfg.micDeviceId
   let voiceThreshold = initCfg.voiceThreshold
@@ -887,6 +889,23 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     synthSqueak(ctx)
     return 450
   }
+  /** 把 mp3 元素路由进共享音量节点（MediaElementSource → volNode → destination）。
+   *  路由成功后元素自身 volume 失效、由 gain 实时控制——音量调节对**正在播**的声音即刻生效，
+   *  不再依赖 playingAudio 引用竞态（踩过：大笑中途调音量听不到变化）。
+   *  返回 false = 路由失败（AudioContext 未暖），元素退回自身 volume 按播放时取值。 */
+  const attachToVol = (audio: HTMLAudioElement): boolean => {
+    try {
+      const ctx = audioCtx()
+      if (ctx === null) { audio.volume = masterVolume / 100; return false }
+      const src = ctx.createMediaElementSource(audio)
+      src.connect(volDest(ctx))
+      audio.volume = 1 // 路由后增益由 volNode 全权控制
+      return true
+    } catch {
+      audio.volume = masterVolume / 100
+      return false
+    }
+  }
   /** 放一声当前皮肤的叫声，返回时长 ms（0=无声/被静音）。 */
   const playVoice = (): number => {
     if (muted || masterVolume === 0) return 0
@@ -896,7 +915,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       if (list.length === 0) return 0
       const src = list[Math.floor(Math.random() * list.length)]
       const audio = new Audio(src)
-      audio.volume = masterVolume / 100
+      attachToVol(audio)
       playingAudio = audio
       audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
       void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
@@ -913,7 +932,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (muted || masterVolume === 0) return 0
     if (customSoundOn && customSound !== '') {
       const audio = new Audio(customSound)
-      audio.volume = masterVolume / 100
+      attachToVol(audio)
       playingAudio = audio
       audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
       void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
@@ -926,7 +945,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (doneList !== undefined && doneList.length > 0) {
       const src = doneList[Math.floor(Math.random() * doneList.length)]
       const audio = new Audio(src)
-      audio.volume = masterVolume / 100
+      attachToVol(audio)
       playingAudio = audio
       audio.addEventListener('ended', () => { if (playingAudio === audio) playingAudio = null }, { once: true })
       void audio.play().catch(() => { /* 自动播放被拦：等用户首次交互 */ })
@@ -949,7 +968,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     lastReplyAt = Date.now()
     if (masterVolume === 0) return // 音量 0 视同静音（不回不放）
     const audio = new Audio(src)
-    audio.volume = masterVolume / 100
+    attachToVol(audio)
     void audio.play().catch(() => {})
     const d = soundDur.get(src)
     showBubble('牛来！', Math.max(1500, Math.round((d ?? 1.8) * 1000) + 300))
@@ -2355,16 +2374,18 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     heatOn = c.heatEnabled
     if (!heatOn && heat > 0) { heat = 0; applyImgFilter() } // 关红温：立即褪掉现有红
     const newVol = c.volume
-    if (newVol !== masterVolume) {
+    // 与 configVolume 比较，不跟 masterVolume 比——菜单 preview 会先把 masterVolume 拨到
+    // 预览值，提交时两者相等就误判"没变化"跳过实时更新（踩过：大笑中途调音量听不到变化）
+    if (newVol !== configVolume) {
+      configVolume = newVol
       masterVolume = newVol
-      // 即时生效：正在播的音与合成节点立刻跟新音量（调滑杆却听不到变化 = 就是这个没做，踩过）
+      // 即时生效：正在播的音与合成节点立刻跟新音量
       if (playingAudio !== null) playingAudio.volume = masterVolume / 100
       if (volNode !== null) volNode.gain.value = masterVolume / 100
     }
     hiddenAll = c.hidden
     root.style.display = c.hidden ? 'none' : '' // 隐藏全部（配置全局共享，所有实例同步隐没）
     syncPhysics()
-    masterVolume = c.volume
     voiceControlOn = c.voiceControl
     micGain = c.micGain // 增益不进重启 diff：voice 馈送路径逐块读，热生效
     if (c.micDeviceId !== micDeviceId || c.voiceThreshold !== voiceThreshold || c.voiceTemplate !== voiceTemplate || c.voiceEngine !== voiceEngine
