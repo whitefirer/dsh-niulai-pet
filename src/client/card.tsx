@@ -90,6 +90,7 @@ const zh = {
   voiceIdle: '状态：未授权',
   talkative: '气泡',
   heatEnabled: '连戳红温',
+  mute: '静音',
   hideAll: '隐藏全部桌宠',
   quips: '唠叨语录',
   quipsHint: '一行一条；设置后替换内置通用语录（皮肤专属语录不受影响），留空恢复内置。',
@@ -204,6 +205,7 @@ const en: Record<keyof typeof zh, string> = {
   voiceIdle: 'Status: not granted',
   talkative: 'Bubbles',
   heatEnabled: 'Poke heat-up',
+  mute: 'Mute',
   hideAll: 'Hide all pets',
   quips: 'Chatter lines',
   quipsHint: 'One per line; replaces the built-in shared pool when non-empty (skin-specific lines always stay). Clear to restore defaults.',
@@ -1264,10 +1266,19 @@ export function NiulaiCard(props: NiulaiCardProps) {
               <Switch on={cfg.hidden} disabled={disabled} label={t('hideAll')} onChange={(on) => { props.set({ hidden: on }) }} />
             </Row>
             <Row label={t('sound')}>
-              <Switch on={!cfg.muted} disabled={disabled} label={t('sound')} onChange={(on) => { props.set({ muted: !on }) }} />
-            </Row>
-            <Row label={t('volume')}>
-              <VolumeField value={cfg.volume} disabled={disabled} label={t('volume')} onCommit={(n) => { props.set({ volume: n }) }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {/* 静音按钮 + 音量滑杆合并：静音仅显示 0（音量值保留，解除恢复）；滑到 0 自动静音、拉高自动解除 */}
+                <button type="button" disabled={disabled} aria-label={t('mute')}
+                  onClick={() => { props.set({ muted: !cfg.muted }) }}
+                  style={{
+                    font: 'inherit', fontSize: 16, width: 34, height: 28, borderRadius: 7,
+                    border: `1px solid ${cfg.muted ? 'var(--dsw-alias-brand-primary, #3b82f6)' : colors.border}`,
+                    background: 'none', cursor: disabled ? 'default' : 'pointer',
+                    lineHeight: 1, color: cfg.muted ? 'var(--dsw-alias-brand-primary, #3b82f6)' : colors.labelPrimary,
+                  }}>{cfg.muted ? '🔇' : '🔊'}</button>
+                <VolumeField value={cfg.muted ? 0 : cfg.volume} disabled={disabled} label={t('volume')}
+                  onCommit={(n) => { props.set({ volume: n, muted: n === 0 }) }} />
+              </span>
             </Row>
             <Row label={t('shoutOnDone')}>
               <Switch on={cfg.shoutOnDone} disabled={disabled} label={t('shoutOnDone')} onChange={(on) => { props.set({ shoutOnDone: on }) }} />
