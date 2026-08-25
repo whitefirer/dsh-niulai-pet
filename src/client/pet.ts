@@ -1623,7 +1623,6 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     breathe.cancel()
     const s = cur()
     const homeX = x
-    const homeFacing = facing
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
     facing = dir
     root.style.setProperty('--face', String(dir))
@@ -1673,8 +1672,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (destroyed) return
     if (mood !== 'fly') return
     x = homeX
-    facing = homeFacing
-    root.style.setProperty('--face', String(homeFacing))
+    // 停在哪就朝哪：保留回归段朝向（不还原开车前朝向——到家瞬间翻头很出戏）
     img.style.transform = ''
     img.src = skinIdle()
     driving = false // 开车图用完还原（顺序：防 mouthShut 在还原前的余缝里踩图）
