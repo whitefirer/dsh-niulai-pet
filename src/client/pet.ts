@@ -529,6 +529,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     }
     config.set({ extraPets: config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, opacity: v } : p) })
   }
+  /** 写本宠大小：主宠写 petSize；额外表读-改-写自己的条目。 */
+  const setMySize = (v: number): void => {
+    if (petId === 'main') {
+      config.set({ petSize: v })
+      return
+    }
+    config.set({ extraPets: config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, size: v } : p) })
+  }
   /** 本宠位置 x：主宠用 x 键；额外表用 xByPet[petId]（都无记忆时按 defaultX 错位）。
    *  展示性挂载（forceSkin，demo 全家福）不读不写位置记忆——列队位置由 demo 排。 */
   const demoDoll = assets.forceSkin !== undefined
@@ -2124,6 +2132,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         fn: setMyOpacity,
         preview: (v) => { petOpacity = v; applyImgFilter() },
       },
+      {
+        kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
+        fn: setMySize,
+        // 预览只动镜头（视觉即时反馈）；帧缓存/预读留给 syncConfig 落盘后统一做
+        preview: (v) => { petH = v; root.style.height = `${v}px`; img.style.height = `${v}px` },
+      },
       { kind: 'cycle', label: '🎨 皮肤', value: skin.name, fn: () => { setMySkin(nextSkin.id) } },
       { kind: 'action', label: '🕊 飞一圈', fn: () => { void flyAcross() } },
       { kind: 'action', label: '🎭 表演一下', fn: () => { shout(); if (animAllows('signature')) runAction('signature') } },
@@ -2210,6 +2224,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const commitSliderPreview = (): void => {
     if (petHue !== myHue(config.getSnapshot())) setMyHue(petHue)
     if (petOpacity !== myOpacity(config.getSnapshot())) setMyOpacity(petOpacity)
+    if (petH !== mySize(config.getSnapshot())) setMySize(petH)
   }
   const closeMenu = (): void => {
     if (menu.style.display === 'block') commitSliderPreview()
