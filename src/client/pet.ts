@@ -454,13 +454,15 @@ function synthMotor(ctx: AudioContext): void {
   nGain.gain.value = 0.45
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
   noise.start(t0); noise.stop(t0 + dur + 0.4)
-  // 总包络：音头起 → 咆哮保持 → 松油门指数泄油（音量衰减配合音高回落才有真实冲刷感）
+  // 总包络：音头起 → 咆哮保持 → 松油门泄油（精确归零的两段斜坡；不能用 setTargetAtTime(0)——
+  // 它渐近趋零永远到不了 0，源头 stop 时残留 ~5% 被硬切断 = 结尾突出的那一声）
   out.connect(volDest(ctx))
   out.gain.setValueAtTime(0, t0)
   out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
   out.gain.setValueAtTime(0.42, t0 + 0.8)
-  out.gain.setTargetAtTime(0.3, t0 + 0.8, 0.12)
-  out.gain.setTargetAtTime(0, t0 + 1.05, 0.22)
+  out.gain.linearRampToValueAtTime(0.3, t0 + 1.15)
+  out.gain.linearRampToValueAtTime(0.08, t0 + 1.45)
+  out.gain.linearRampToValueAtTime(0, t0 + 1.66)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
