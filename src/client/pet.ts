@@ -382,37 +382,39 @@ function synthCrackle(ctx: AudioContext): void {
   }
 }
 
-/** 引擎低吼（警车）：锯齿+方波双层，转速上拉后回落，一闯就走的声。 */
-function synthEngine(ctx: AudioContext): void {
+/** 引擎低吼（警车）：锯齿+方波双层，转速上拉后回落；durS 可传（drive 全程版随驾驶时长）。 */
+function synthEngine(ctx: AudioContext, durS = 0.95): void {
   const t0 = ctx.currentTime
-  const make = (type: OscillatorType, f0: number, f1: number, vol: number, stopAt: number): void => {
+  const dur = durS
+  const make = (type: OscillatorType, f0: number, f1: number, vol: number): void => {
     const osc = ctx.createOscillator()
     osc.type = type
     osc.frequency.setValueAtTime(f0, t0)
-    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.28)
+    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.28 * dur / 0.95)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.value = 700
     const g = ctx.createGain()
     g.gain.setValueAtTime(0.0001, t0)
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.045)
-    g.gain.exponentialRampToValueAtTime(vol * 0.5, t0 + 0.5)
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + stopAt)
+    g.gain.exponentialRampToValueAtTime(vol * (dur > 1 ? 0.62 : 0.5), t0 + 0.5 * dur / 0.95)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
     osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
-    osc.start(t0); osc.stop(t0 + stopAt)
+    osc.start(t0); osc.stop(t0 + dur)
   }
-  make('sawtooth', 68, 150, 0.2, 0.95)
-  make('square', 34, 72, 0.14, 0.95)
+  make('sawtooth', 68, 150, 0.2)
+  make('square', 34, 72, 0.14)
 }
 
-/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 快放油（转速+音量同跌）→ 短怠速尾。 */
-function synthMotor(ctx: AudioContext): void {
+/** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 快放油（转速+音量同跌）→ 短怠速尾。
+ *  durS 可传：drive 全程版随驾驶时长拉伸（到停车才泄油）。 */
+function synthMotor(ctx: AudioContext, durS = 1.1): void {
   const t0 = ctx.currentTime
-  const dur = 1.1
-  // 转速曲线：0-0.68 拉起（85→290Hz），0.68-0.88 快速放油（290→135），0.88-1.1 怠速微颤回落
-  const fCurve = new Float32Array(80)
-  for (let i = 0; i < 80; i++) {
-    const t = i / 79
+  const dur = durS
+  // 转速曲线：（0-0.62）拉起 85→290Hz，（0.62-0.8）快速放油→135，（0.8-1）怠速微颤回落
+  const fCurve = new Float32Array(120)
+  for (let i = 0; i < 120; i++) {
+    const t = i / 119
     if (t < 0.62) fCurve[i] = 85 + Math.pow(t / 0.62, 1.6) * 205
     else if (t < 0.8) fCurve[i] = 290 - ((t - 0.62) / 0.18) * 155
     else fCurve[i] = 135 - ((t - 0.8) / 0.2) * 12 + Math.sin(t * 40) * 3
@@ -458,14 +460,15 @@ function synthMotor(ctx: AudioContext): void {
   nGain.gain.value = 0.45
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
   noise.start(t0); noise.stop(t0 + dur + 0.15)
-  // 总包络：音头起 → 咆哮保持 → 快放油 → 短怠速尾 → 精确归零（源头停时增益已是 0）
+  // 总包络：音头起 → 咆哮保持 → 快放油 → 短怠速尾 → 精确归零（源头停时增益已是 0；
+  // 时点按 durS 等比缩放：0.6/0.82/0.91/1.0）
   out.connect(volDest(ctx))
   out.gain.setValueAtTime(0, t0)
-  out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
-  out.gain.setValueAtTime(0.42, t0 + 0.66)
-  out.gain.linearRampToValueAtTime(0.16, t0 + 0.9)
-  out.gain.linearRampToValueAtTime(0.05, t0 + 1.0)
-  out.gain.linearRampToValueAtTime(0, t0 + 1.1)
+  out.gain.linearRampToValueAtTime(0.42, t0 + 0.09 * dur)
+  out.gain.setValueAtTime(0.42, t0 + 0.6 * dur)
+  out.gain.linearRampToValueAtTime(0.16, t0 + 0.82 * dur)
+  out.gain.linearRampToValueAtTime(0.05, t0 + 0.91 * dur)
+  out.gain.linearRampToValueAtTime(0, t0 + dur)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
@@ -1617,6 +1620,16 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 菜单/一起飞：路线随机（dive 抛物线 / arc 跃出弧），方向与时长见 flight 内随机。 */
   const flyAcross = (): Promise<void> => flight(Math.random() < 0.7 ? 'dive' : 'arc')
 
+  /** 全程引擎声：按皮肤 voice 选合成器拉伸到全长（驶出吼 → 巡航 → 到站泄油）；
+   *  与戳出去的短促"轰"叠加（shout 仍走 playVoice），静止/静音自吞。 */
+  const driveEngine = (durS: number): void => {
+    if (muted || masterVolume === 0) return
+    const ctx = audioCtx()
+    if (ctx === null) return
+    const v = cur().voice
+    if (v === 'motor') synthMotor(ctx, durS)
+    else if (v === 'engine') synthEngine(ctx, durS)
+  }
   /** 地面横穿（警车/摩托签名）：引擎声开吼 → 沿路面冲出屏幕 → 从另一侧杀回 → 滑回原位。
    *  演出风格走皮肤 driveStyle：**前段（冲出+进场）平开，回归段（0.64-1 滑回）才演**
    *  wheelie=抬前轮庆祝 / wiggle=摇头晃脑 / random 每次抽（冲线庆祝语义）。 */
@@ -1629,7 +1642,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
     facing = dir
     root.style.setProperty('--face', String(dir))
-    playVoice() // 引擎/摩托吼一声（警笛走 doneSounds 在完成路径另播）
+    driveEngine(3.5) // 全程引擎声（到停车才泄油；戳出去的短促轰鸣另由 shout 叠加）
     const style = s.driveStyle === 'random' ? (Math.random() < 0.5 ? 'wheelie' : 'wiggle') : s.driveStyle ?? 'normal'
     if (s.imageDrive !== undefined) { img.src = s.imageDrive; driving = true } // 开车图（如骑士狂焰帧）；结束还原
     const w = root.getBoundingClientRect().width
