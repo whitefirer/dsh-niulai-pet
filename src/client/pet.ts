@@ -2111,6 +2111,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     | { kind: 'cycle'; label: string; value: string; fn: () => void }
     | { kind: 'action'; label: string; fn: () => void }
     | { kind: 'slider'; label: string; value: number; min: number; max: number; unit: string; fn: (v: number) => void; preview: (v: number) => void }
+    | { kind: 'vol'; label: string; muted: boolean; volume: number; fn: (v: number) => void; preview: (v: number) => void; onMute: () => void }
 
   /** 菜单即乐园：只留高频开关/动作；低频配置（完成喊几声/打盹/碰撞/动作绑定等）全归设置面板。 */
   const rebuildMenu = (): void => {
@@ -2120,7 +2121,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     // 读写都走 ConfigStore：菜单行只发写请求，显示值来自 store 快照镜像
     // （store 变更 → 文末订阅 → syncConfig + 菜单就地重建，设置卡片同理）
     const rows: Row[] = [
-      { kind: 'bool', label: '🔊 声音', on: !muted, fn: () => { config.set({ muted: !muted }) } },
+      // 音量=静音按钮+滑杆合并：静音显示 0 但值保留；滑到 0 自动静音、拉高自动解除
+      { kind: 'vol', label: '📢 音量', muted, volume: masterVolume, fn: (v) => { config.set({ volume: v, muted: v === 0 }) }, preview: (v) => { masterVolume = v }, onMute: () => { config.set({ muted: !muted }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       {
         kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
@@ -2206,10 +2208,40 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         wrap.appendChild(val)
         row.appendChild(wrap)
       }
+      if (r.kind === 'vol') {
+        // 静音按钮 + 音量滑杆合并行：按钮翻转静音（行内重建），滑杆 preview/commit 同 slider
+        const wrap = document.createElement('span')
+        wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px'
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.textContent = r.muted ? '🔇' : '🔊'
+        btn.title = r.muted ? '取消静音' : '静音'
+        btn.style.cssText = 'font-size:12px;width:26px;height:18px;border-radius:6px;border:1px solid #3f3f46;background:none;cursor:pointer;padding:0;line-height:1;color:' + (r.muted ? '#3b82f6' : '#e4e4e7')
+        const input = document.createElement('input')
+        input.type = 'range'
+        input.min = '0'
+        input.max = '100'
+        input.value = String(r.muted ? 0 : r.volume)
+        input.style.cssText = 'width:84px;accent-color:#3b82f6'
+        const val = document.createElement('span')
+        val.style.cssText = 'font-size:11px;color:#a1a1aa;min-width:30px;text-align:right'
+        const fmt = (): string => `${r.muted ? 0 : Math.round(r.volume)}%`
+        val.textContent = fmt()
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); r.onMute() })
+        input.addEventListener('input', () => {
+          val.textContent = `${input.value}%`
+          r.preview(Number(input.value))
+        })
+        input.addEventListener('change', () => { r.fn(Number(input.value)) })
+        wrap.appendChild(btn)
+        wrap.appendChild(input)
+        wrap.appendChild(val)
+        row.appendChild(wrap)
+      }
       row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,.12)' }
       row.onmouseleave = () => { row.style.background = '' }
       row.onclick = () => {
-        if (r.kind === 'slider') return // 滑杆交互在 input 上，点行不动作不收菜单
+        if (r.kind === 'slider' || r.kind === 'vol') return // 滑杆/音量交互在 input 上，点行不动作不收菜单
         r.fn()
         if (r.kind === 'action') {
           closeMenu()
@@ -2225,6 +2257,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (petHue !== myHue(config.getSnapshot())) setMyHue(petHue)
     if (petOpacity !== myOpacity(config.getSnapshot())) setMyOpacity(petOpacity)
     if (petH !== mySize(config.getSnapshot())) setMySize(petH)
+    if (masterVolume !== config.getSnapshot().volume) {
+      config.set({ volume: masterVolume, muted: masterVolume === 0 })
+    }
   }
   const closeMenu = (): void => {
     if (menu.style.display === 'block') commitSliderPreview()
