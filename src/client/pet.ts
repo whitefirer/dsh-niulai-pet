@@ -2122,7 +2122,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     // （store 变更 → 文末订阅 → syncConfig + 菜单就地重建，设置卡片同理）
     const rows: Row[] = [
       // 音量=静音按钮+滑杆合并：静音显示 0 但值保留；滑到 0 自动静音、拉高自动解除
-      { kind: 'vol', label: '📢 音量', muted, volume: masterVolume, fn: (v) => { config.set({ volume: v, muted: v === 0 }) }, preview: (v) => { masterVolume = v }, onMute: () => { config.set({ muted: !muted }) } },
+      { kind: 'vol', label: '📢 音量', muted, volume: masterVolume, fn: (v) => { config.set({ volume: v, muted: v === 0 }) }, preview: (v) => { masterVolume = v; if (volNode !== null) volNode.gain.value = v / 100 }, onMute: () => { config.set({ muted: !muted }) } },
       { kind: 'bool', label: '💬 气泡', on: talkative, fn: () => { config.set({ talkative: !talkative }) } },
       {
         kind: 'slider', label: '📏 大小', value: petH, min: 72, max: 200, unit: 'px',
@@ -2354,6 +2354,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     physicsOn = c.physics
     heatOn = c.heatEnabled
     if (!heatOn && heat > 0) { heat = 0; applyImgFilter() } // 关红温：立即褪掉现有红
+    const newVol = c.volume
+    if (newVol !== masterVolume) {
+      masterVolume = newVol
+      // 即时生效：正在播的音与合成节点立刻跟新音量（调滑杆却听不到变化 = 就是这个没做，踩过）
+      if (playingAudio !== null) playingAudio.volume = masterVolume / 100
+      if (volNode !== null) volNode.gain.value = masterVolume / 100
+    }
     hiddenAll = c.hidden
     root.style.display = c.hidden ? 'none' : '' // 隐藏全部（配置全局共享，所有实例同步隐没）
     syncPhysics()
