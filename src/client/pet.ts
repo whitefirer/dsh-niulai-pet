@@ -424,7 +424,7 @@ function synthMotor(ctx: AudioContext): void {
     const g = ctx.createGain()
     g.gain.value = vol
     osc.connect(lp); lp.connect(g); g.connect(out)
-    osc.start(t0); osc.stop(t0 + dur + 0.05)
+    osc.start(t0); osc.stop(t0 + dur + 0.3)
   }
   attach('sawtooth', 0.34, 1, 900)      // 主腔（四冲程）
   attach('square', 0.2, 0.5, 400)       // 低吼亚谐
@@ -445,14 +445,14 @@ function synthMotor(ctx: AudioContext): void {
   const nGain = ctx.createGain()
   nGain.gain.value = 0.45
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
-  noise.start(t0); noise.stop(t0 + dur + 0.05)
-  // 总包络：音头 0.1s 起、咆哮段保持、泄油收尾
+  noise.start(t0); noise.stop(t0 + dur + 0.3)
+  // 总包络：音头 0.1s 起、咆哮段保持、泄油**指数衰减**收尾（线性切尾有"啪"的切断感）
   out.connect(volDest(ctx))
   out.gain.setValueAtTime(0, t0)
   out.gain.linearRampToValueAtTime(0.42, t0 + 0.1)
   out.gain.setValueAtTime(0.42, t0 + 0.85)
-  out.gain.linearRampToValueAtTime(0.25, t0 + 1.05)
-  out.gain.linearRampToValueAtTime(0, t0 + dur)
+  out.gain.setTargetAtTime(0.26, t0 + 0.85, 0.1)
+  out.gain.setTargetAtTime(0, t0 + 1.05, 0.16)
 }
 
 /** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
@@ -1605,7 +1605,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const flyAcross = (): Promise<void> => flight(Math.random() < 0.7 ? 'dive' : 'arc')
 
   /** 地面横穿（警车/摩托签名）：引擎声开吼 → 沿路面冲出屏幕 → 从另一侧杀回 → 滑回原位。
-   *  演出风格走皮肤 driveStyle（wheelie=全程抬前轮 / wiggle=高频摇头晃脑 / random 每次抽）。 */
+   *  演出风格走皮肤 driveStyle：**前段（冲出+进场）平开，回归段（0.64-1 滑回）才演**
+   *  wheelie=抬前轮庆祝 / wiggle=摇头晃脑 / random 每次抽（冲线庆祝语义）。 */
   const driveAcross = async (): Promise<void> => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
     mood = 'fly'
@@ -1641,8 +1642,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         }
         x = nx
         let rot = 0
-        if (style === 'wheelie') rot = -24 // 前轮抬（镜像父级内不乘 dir）
-        else if (style === 'wiggle') rot = Math.sin(t * Math.PI * 9) * 9
+        // 前段平开；回归段才演冲线庆祝（wheelie 抬前轮 / wiggle 摇头；镜像父级内不乘 dir）
+        if (t >= 0.64) {
+          if (style === 'wheelie') rot = -24
+          else if (style === 'wiggle') rot = Math.sin((t - 0.64) * Math.PI * 21) * 9
+        }
         root.style.transform = `translateX(${x}px) scaleX(${facing})`
         img.style.transform = `rotate(${rot}deg)`
         if (t < 1) requestAnimationFrame(step)
