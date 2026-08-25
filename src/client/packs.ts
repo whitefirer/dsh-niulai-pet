@@ -93,6 +93,8 @@ export interface PackSkinDef {
     lampB?: string
     /** 卷形图（roll 动作换图，犰狳卷成球滚动）。 */
     roll?: string
+    /** drive 动作图（开车横穿时换它，如火焰骷髅骑士狂焰帧）。 */
+    drive?: string
   }
   shoutAnim?: ShoutFrame[]
   signature?: ActionName
@@ -254,6 +256,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     imageLampA: skin.images.lampA,
     imageLampB: skin.images.lampB,
     imageRoll: skin.images.roll,
+    imageDrive: skin.images.drive,
     voice: char.voice.type === 'samples' ? 'mama' : char.voice.preset,
     sounds: char.voice.type === 'samples' ? char.voice.sounds : undefined,
     replySound: char.voice.type === 'samples' ? char.voice.reply : undefined,
@@ -485,7 +488,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         } else if (typeof imgRaw.stand !== 'string') {
           errors.push(`${at}.images.stand: 必填（透明底 png）`)
         }
-        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout', 'sleep', 'lampA', 'lampB', 'roll'] as const) {
+        for (const key of ['blink', 'shout', 'fly', 'flyShout', 'spout', 'sleep', 'lampA', 'lampB', 'roll', 'drive'] as const) {
           const d = asset(`${at}.images.${key}`, IMG_EXT)
           if (d !== undefined) images[key] = d
         }

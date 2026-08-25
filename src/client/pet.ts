@@ -66,6 +66,8 @@ export interface SkinDef {
   imageLampB?: string
   /** 卷形图（可选；roll 动作专用——犰狳卷成球滚动时换成它，车轮式旋转）。 */
   imageRoll?: string
+  /** drive 动作图（可选；开车横穿时换它——如火焰骷髅骑士第二帧狂焰状态，平时用站姿）。 */
+  imageDrive?: string
   voice: VoiceName
   /** voice=mama 时的喊声 mp3（dataurl）若干。 */
   sounds?: string[]
@@ -599,6 +601,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let animRolling = false
   /** 卷形滚动中（犰狳 roll 换球图；mouthShut 让位用）。 */
   let rollingBall = false
+  /** 开车横穿中（imageDrive 换图；mouthShut 让位用——否则喊叫计时器 240ms 把开车图踩回站姿）。 */
+  let driving = false
   /** 警灯相位：有 lampA/lampB 的皮肤（警车）待机交替闪。 */
   let lampOn = false
   const skinIdle = (): string => {
@@ -1007,7 +1011,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       : skinShout()
   }
   const mouthShut = (): void => {
-    if (rollingBall) return // 卷形滚动中：嘴型复位别碰球图（否则喊叫计时器把球图踩回站姿图）
+    if (rollingBall || driving) return // 卷形滚动/开车横穿中：嘴型复位别碰演出图（否则被踩回站姿图）
     img.src = mood === 'fly' ? (cur().imageFly ?? cur().image) : skinIdle()
   }
   // 喊叫动画（shoutAnim 皮肤）：按时间线切帧，rock 帧附加倒地摇摆
@@ -1587,6 +1591,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     root.style.setProperty('--face', String(dir))
     playVoice() // 引擎/摩托吼一声（警笛走 doneSounds 在完成路径另播）
     const style = s.driveStyle === 'random' ? (Math.random() < 0.5 ? 'wheelie' : 'wiggle') : s.driveStyle ?? 'normal'
+    if (s.imageDrive !== undefined) { img.src = s.imageDrive; driving = true } // 开车图（如骑士狂焰帧）；结束还原
     const w = root.getBoundingClientRect().width
     const off = w + 40
     const start = performance.now()
@@ -1625,6 +1630,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     root.style.setProperty('--face', String(homeFacing))
     img.style.transform = ''
     img.src = skinIdle()
+    driving = false // 开车图用完还原（顺序：防 mouthShut 在还原前的余缝里踩图）
     applyX()
     breathe.play()
     mood = 'idle'
