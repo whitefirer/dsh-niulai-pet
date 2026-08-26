@@ -163,6 +163,10 @@ type Mood = 'idle' | 'walk' | 'drag' | 'celebrate' | 'sleep' | 'fly'
 
 const PET_H = 120 // 默认显示高度 px（实例实际高度 = petH，随配置热改）
 
+/** 叫声时长的兜底值（ms；mp3 元数据预读失败时 playVoice 也回落到它）。
+ *  静音时 shout 借它撑演出时序——只有时长语义，不真的出声。 */
+const DEFAULT_SHOUT_MS = 2600
+
 /** 随机池（具体动作）。 */
 const ACTION_POOL: ActionName[] = ['fly', 'dance', 'spin', 'hops', 'roll', 'breach', 'sway', 'split', 'drive']
 /** 动作全序（菜单循环顺序、设置卡片下拉项；合法性唯一围栏，host schema 是 z.string() 不枚举——前向兼容，见 index.js Action 注释）。 */
@@ -528,6 +532,81 @@ function synthMotor(ctx: AudioContext, durS = 1.1): void {
   out.gain.linearRampToValueAtTime(0, t0 + dur)
 }
 
+/** 装甲球滚过**木板**（犰狳卷球签名）：物理玩具声而非电子合成——
+ *  1) 木板条接缝撞击：正弦短促衰减的「咚」（空心木板共振，~160-240Hz 非固定，
+ *     每格接缝一响，节拍随滚动快慢）；
+ *  2) 木腔嗡鸣：白噪过窄带通（低频木箱共鸣）+ 慢速音量起伏；
+ *  3) 木质摩擦：轻微低通噪声（板面磨砂感）。durS 可传（随卷球时长）。 */
+function synthRoll(ctx: AudioContext, durS = 3.6): void {
+  const t0 = ctx.currentTime
+  const dur = durS
+  const out = ctx.createGain()
+  // 总包络：起势 → 巡航 → 减速收尾
+  out.gain.setValueAtTime(0, t0)
+  out.gain.linearRampToValueAtTime(0.5, t0 + 0.1 * dur)
+  out.gain.setValueAtTime(0.5, t0 + 0.72 * dur)
+  out.gain.linearRampToValueAtTime(0.12, t0 + 0.9 * dur)
+  out.gain.linearRampToValueAtTime(0, t0 + dur)
+  out.connect(volDest(ctx))
+
+  // 1) 木板条接缝「咚」：正弦短衰减（木头空心共振，不敲出金属感）
+  const HITS = Math.max(10, Math.floor(dur / 0.16))
+  for (let i = 0; i < HITS; i++) {
+    const at = t0 + (i / HITS) * dur + (Math.random() * 0.02 - 0.01) // 微抖动：天然不齐
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    // 板条厚度不一 → 共振频率微变：160~240Hz 随机 + 慢漂移
+    const base = 160 + Math.random() * 80
+    osc.frequency.setValueAtTime(base, at)
+    osc.frequency.exponentialRampToValueAtTime(base * 0.72, at + 0.09)
+    const g = ctx.createGain()
+    // 响度随滚动进度起伏（前后轻、中段重），幅度抖动
+    const env = 0.3 * Math.sin(Math.min(1, (i / HITS) * 1.4) * Math.PI) + 0.06
+    g.gain.setValueAtTime(0.0001, at)
+    g.gain.exponentialRampToValueAtTime(env * (0.8 + Math.random() * 0.4), at + 0.005)
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.12)
+    osc.connect(g); g.connect(out)
+    osc.start(at); osc.stop(at + 0.14)
+  }
+
+  // 2) 木腔嗡鸣：白噪 → 窄带通（低频木箱共鸣 ~120Hz）→ 音量呼吸
+  const bbuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const bd = bbuf.getChannelData(0)
+  for (let i = 0; i < bd.length; i++) bd[i] = Math.random() * 2 - 1
+  const bnoise = ctx.createBufferSource()
+  bnoise.buffer = bbuf
+  const bbp = ctx.createBiquadFilter()
+  bbp.type = 'bandpass'
+  bbp.Q.value = 2.2 // 窄：木质腔体共鸣，不是空气噪声
+  bbp.frequency.value = 120
+  const bg = ctx.createGain()
+  bg.gain.value = 0.28
+  const bLfo = ctx.createOscillator()
+  bLfo.type = 'sine'
+  bLfo.frequency.value = 1 / 0.9 // 0.9s 一圈翻身呼吸
+  const bDepth = ctx.createGain()
+  bDepth.gain.value = 0.12
+  bLfo.connect(bDepth); bDepth.connect(bg.gain)
+  bnoise.connect(bbp); bbp.connect(bg); bg.connect(out)
+
+  // 3) 木质摩擦：白噪 → 宽低通（板面磨砂感，不用带通——那是"沙沙"高频扫尘）
+  const fbuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const fd = fbuf.getChannelData(0)
+  for (let i = 0; i < fd.length; i++) fd[i] = Math.random() * 2 - 1
+  const fnoise = ctx.createBufferSource()
+  fnoise.buffer = fbuf
+  const flp = ctx.createBiquadFilter()
+  flp.type = 'lowpass'
+  flp.frequency.value = 300
+  const fg = ctx.createGain()
+  fg.gain.value = 0.1
+  fnoise.connect(flp); flp.connect(fg); fg.connect(out)
+
+  bnoise.start(t0); bnoise.stop(t0 + dur + 0.1)
+  bLfo.start(t0); bLfo.stop(t0 + dur + 0.1)
+  fnoise.start(t0); fnoise.stop(t0 + dur + 0.1)
+}
+
 /** 警笛：中式「嘀-呜」高低转调滑音（阶梯式，非连续摆）。高音段≈880Hz 0.30s →
  *  0.05s 快速下滑至 620Hz 低音段 0.34s → 0.05s 回滑 880Hz，5 轮≈3.7s。
  *  音色：方波+锯齿混合带通眯啸（电子警报器），轻颤音，包络整条渐变不爆音。 */
@@ -847,8 +926,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     raging = true
     rageCooldownUntil = Date.now() + 4000
     showBubble('再戳我急了！', 2200)
-    facing = facing === 1 ? -1 : 1 // 扭头背过去
-    applyX()
+    setFacing(facing === 1 ? -1 : 1) // 扭头背过去
     await img.animate(
       [
         { transform: 'rotate(0deg)' },
@@ -960,6 +1038,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     window.innerWidth - 80,
   )
   let facing: 1 | -1 = 1 // 1=朝右
+  /** 唯一朝向入口：facing 与 root 的 scaleX(facing)、--face 变量必须三元同步。
+   *  裸改 facing 会留下窗口期（走路转身要等 rAF、气泡显示期转身文字不随之消镜像），
+   *  气泡/菜单/关于全靠 var(--face) 消镜像——凡改朝向必须走这里（踩过）。 */
+  const setFacing = (dir: 1 | -1): void => {
+    facing = dir
+    applyX()
+  }
   /** 拎起高度（≤0，translateY 偏移）；拖拽垂直 1:1 跟随，松手重力坠落。
    *  声明必须在 applyX 前（applyX 挂载即调用，TDZ）；applyX 必须带上它——
    *  物理世界的 setX→applyX 曾把拎着时的 translateY 抹掉，宠物闪回地面（踩过）。 */
@@ -1127,9 +1212,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (text === '') return
     if (!system && !talkative) return // 装饰性气泡（喊声/回话/唠叨）随开关关闭
     bubbleText.textContent = text
-    // 反镜像直接按 JS 的 facing 写死（不用 CSS 变量：调头路径可能只改 transform
-    // 忘了同步 --face，var 会拿到过期值导致文字镜像；facing 是唯一真相）
-    bubbleText.style.transform = `scaleX(${facing})`
+    // 反镜像走 var(--face)：显示期间转身（走路调头/被撞/驾驶掉头）文字立即跟着消镜像。
+    // 前提是 setFacing 统一入口保证 --face 与 root 的 scaleX 永不脱钩（裸改会踩）。
     root.style.setProperty('--pop', '1')
     window.clearTimeout(bubbleTimer)
     bubbleTimer = window.setTimeout(() => {
@@ -1259,11 +1343,13 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const scheduleBlink = (): void => {
     blinkTimer = window.setTimeout(() => {
       const canBlink = !destroyed && (mood === 'idle' || mood === 'walk')
-        && !shouting && !animRolling && cur().imageBlink !== undefined
+        && !shouting && !animRolling && !rollingBall && !driving && cur().imageBlink !== undefined
       if (canBlink) {
         img.src = cur().imageBlink as string
         blinkResetTimer = window.setTimeout(() => {
-          if (!destroyed && mood !== 'fly' && !shouting) img.src = skinIdle()
+          // 复位同样让位演出（卷球/开车）：130ms 闭眼窗内被戳/庆祝开演，
+          // 到点会把 roll.png/drive 图踩回站姿图——滚动中闪一下眨眼就是这么来的
+          if (!destroyed && mood !== 'fly' && !shouting && !rollingBall && !driving) img.src = skinIdle()
         }, 130)
       }
       scheduleBlink()
@@ -1381,11 +1467,18 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 转角 = 行程/半径（radius = petH/2），镜像父级内不乘 dir（铁律#2）
       const s = cur()
       img.src = s.imageRoll as string
+      // 球绕自身中心转：img 默认 origin 是 50% 100%（站立图锚底），不换的话
+      // 卷球会绕底部边缘摆，看起来球体在"跷跷板"而非轮式滚动（踩过）
+      img.style.transformOrigin = '50% 50%'
+      // 滚动声：隆隆底 + 甲片撞击脉冲，随 3.6s 全程滚动（静音/音量 0 自吞）
+      if (!muted && masterVolume > 0) {
+        const rctx = audioCtx()
+        if (rctx !== null) synthRoll(rctx, 3.6)
+      }
       const homeX = x
       const homeFacing = facing
       const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
-      facing = dir
-      root.style.setProperty('--face', String(dir))
+      setFacing(dir) // 卷球全程 body 朝行进方向
       const w = root.getBoundingClientRect().width
       const off = w + 40
       const radius = Math.max(20, petH / 2)
@@ -1418,9 +1511,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         requestAnimationFrame(step)
       })
       x = homeX
-      facing = homeFacing
-      root.style.setProperty('--face', String(homeFacing))
-      applyX()
+      setFacing(homeFacing)
     }
     img.style.transform = ''
     img.style.transformOrigin = '50% 100%'
@@ -1548,7 +1639,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const walkTo = async (target: number): Promise<void> => {
     if (mood !== 'idle') return
     mood = 'walk'
-    facing = target > x ? 1 : -1
+    setFacing(target > x ? 1 : -1) // 立即转身（不等 rAF：气泡/菜单显示期转身不再反字）
     const from = x
     const dist = Math.abs(target - from)
     const dur = Math.max(500, (dist / 60) * 1000) // ~60px/s
@@ -1658,8 +1749,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const s = cur()
     img.src = (path === 'dive' ? s.imageFly : undefined) ?? s.image
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
-    facing = dir
-    root.style.setProperty('--face', String(dir)) // 气泡文字靠它抵消镜像
+    setFacing(dir)
     const startX = dir === 1 ? -200 : window.innerWidth + 120
     const endX = dir === 1 ? window.innerWidth + 120 : -200
     const amp = window.innerHeight * (0.22 + Math.random() * 0.4) // 弧顶高度=航道（0.22~0.62 屏高，多只在飞不叠层）
@@ -1734,8 +1824,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     const s = cur()
     const homeX = x
     const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
-    facing = dir
-    root.style.setProperty('--face', String(dir))
+    setFacing(dir)
     // 声音：driveSound（如警笛）优先，否则按 voice 拉长做全程引擎（驶出吼→巡航→到站泄油）
     if (s.driveSound !== undefined && !muted && masterVolume > 0) {
       const ctx = audioCtx()
@@ -1778,10 +1867,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
         x = nx
         // 前段平开；0.64 起在屏幕外**调头**（朝行进方向），回归段逆向前进 = 掉头开回来
         const f = t >= 0.64 ? (dir === 1 ? -1 : 1) : dir
-        if (f !== facing) {
-          facing = f
-          root.style.setProperty('--face', String(f))
-        }
+        if (f !== facing) setFacing(f) // 屏幕外调头：气泡/菜单里的字立即跟着消镜像
         let rot = 0
         // 回归段才演冲线庆祝（wheelie 抬前轮 / wiggle 摇头；镜像父级内不乘 dir）
         if (t >= 0.64) {
@@ -1818,13 +1904,18 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   /** 事件动作派发：signature 解析为当前皮肤签名；random 现场抽。 */
   const runAction = (name: ActionName): void => {
-    if (destroyed || mood === 'drag' || mood === 'fly') return
+    if (destroyed || mood === 'drag' || mood === 'fly' || mood === 'celebrate') return
+    // 演出进行中（roll/dance/... 的 mood 就是 celebrate）不再叠开：两个 rAF 循环
+    // 同时写 x/transform 互相覆盖，表现成「戳了没滚」或滚一半闪回（踩过）
     wakeFromSleep() // 睡着（压扁变暗）触发动作先回正常态，不做梦游演出
     let pick = name
     if (pick === 'signature') pick = cur().signature
-    // 随机池剔除 drive（车类演出留给车系皮肤自己绑，随机抽到牛来开车很出戏）
+    // 随机池剔除：drive（车类演出留给车系皮肤自己绑，随机抽到牛来开车很出戏）
+    // 与 fly/breach（无飞行图的皮肤飞起来 = 站图平移，旋转补偿幅度小到看不出——
+    // 「随机到平移动作」就是这么来的：穿山甲站图从头滑到尾）。无翼皮肤落到签名动作。
     if (pick === 'random') {
-      const pool = ACTION_POOL.filter((a) => a !== 'drive')
+      const s = cur()
+      const pool = ACTION_POOL.filter((a) => a !== 'drive' && !((a === 'fly' || a === 'breach') && s.imageFly === undefined))
       pick = pool[Math.floor(Math.random() * pool.length)]
     }
     if (pick === 'fly') {
@@ -1839,6 +1930,10 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       void driveAcross()
       return
     }
+    // 清掉 img 上所有残留 WAAPI 动画（走路 wobble/小跳/落地回弹/扭一扭）：
+    // 它们 cancel 时机在 await 之后可能被打断而残留，WAAPI 优先级高于内联
+    // transform，会把 roll 的每次 rotate() 遮住——球「平移不转」就是这么来的（踩过）
+    for (const a of img.getAnimations()) a.cancel()
     mood = 'celebrate'
     const done = (): void => { if (!destroyed && mood === 'celebrate') mood = 'idle' }
     const run = pick === 'dance' ? dance()
@@ -2093,16 +2188,22 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   /** 只喊不跳（戳一下的出声部分）：嘴部张合与气泡都撑满喊声全长，
    *  喊完妈妈回一句（开关控制；loop 打断已回过的不重复）。
-   *  再喊先掐旧的：叠着放 = 两重唱（长笑声被连戳时尤其灾难）。 */
+   *  再喊先掐旧的：叠着放 = 两重唱（长笑声被连戳时尤其灾难）。
+   *  静音只静音——动作演出照常（趴睡皮「坐起来叫」的站立图就挂在 mouthShout
+   *  的 isLaydown 分支上；静音返回 0 时长会把整条演出链掐掉，猫被戳趴着不动，
+   *  观感像死了——踩过）。 */
   const shout = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed) return
     wakeFromSleep()
     cutPlayingShout()
-    const ms = playVoice()
-    if (ms > 0) {
-      mouthShout(ms)
-      const shoutAt = Date.now()
-      window.setTimeout(() => { if (lastReplyAt < shoutAt) playReply() }, ms)
+    // 静音时取皮肤默认叫声时长撑演出（只用于张合时序与气泡，不真的出声）
+    const ms = playVoice() || DEFAULT_SHOUT_MS
+    mouthShout(ms)
+    const shoutAt = Date.now()
+    // 静音不出声就不安排回声；气泡是视觉反馈，照常显示（哑剧演出）
+    if (!(muted || masterVolume === 0)) {
+      const replyAt = shoutAt
+      window.setTimeout(() => { if (lastReplyAt < replyAt) playReply() }, ms)
     }
     showBubble(cur().shoutBubble === '' ? '！' : cur().shoutBubble, Math.max(1500, ms + 300))
   }
@@ -2111,6 +2212,12 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
    *  红温：爆发中不理人（0.5s 甩头窗口）；气头冷却期照常应声出气泡，只是不积火（加火被 addHeat 内部冷却门挡住）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed || raging) return
+    // 演出/庆祝进行中戳它：用户应声优先级最高——mood 放回 idle 让当前动作
+    // （rAF 循环的 mood 守卫）自然收尾（roll 收尾无条件清球图/transform），
+    // 并给即将重开的动作开路；否则 runAction 的 mood==='celebrate' 守卫会把
+    // 这次戳弹掉——表现成「走路中戳它没滚」（踩过：任务完成庆祝抢跑 3.6s，
+    // 走路中戳全程被吞，视觉上是平移）。
+    if (mood === 'celebrate') mood = 'idle'
     if (heatOn && addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
@@ -2506,8 +2613,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const bump = (dir: 1 | -1, strong: boolean): void => {
     if (destroyed || mood === 'drag' || mood === 'fly') return
     wakeFromSleep()
-    facing = dir
-    applyX()
+    setFacing(dir) // 被撞立即转身（气泡/菜单文字同步消镜像）
     void hop(strong ? 52 : 24, strong ? 460 : 280)
     if (strong && !muted) {
       const ctx = audioCtx()

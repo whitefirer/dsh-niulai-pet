@@ -9,7 +9,7 @@
  */
 
 import { SKINS } from './skins.js'
-import { BUILTIN_PACKS, applyVariant, expandCharacters, parsePack, PackParseError } from './packs.js'
+import { BUILTIN_PACKS, applyVariant, defaultActionsFor, expandCharacters, parsePack, PackParseError } from './packs.js'
 import type { CharacterDef } from './packs.js'
 import { mountPet, type PetHandle, type SkinDef } from './pet.js'
 import { ConfigStore } from './config.js'
@@ -406,6 +406,9 @@ const start = (): void => {
     defaultSkin: 'niulai',
     subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
     onFlightEnd: mkFlightEnd(flyState, byPid, 'main'),
+    // 和 dsh 插件同源：自定义包的动作绑定（poke=roll / done=signature）从包声明解析；
+    // 不传的话穿山甲这类包的 poke 会回落默认连跳（试玩页戳它不滚——踩过）
+    defaultActions: (gid) => defaultActionsFor([...BUILTIN_PACKS, ...ctx.customs], gid),
   }, store)
   byPid.set('main', pet)
   // 额外表实例管家（同 index.ts；试玩页也开乐园模式）
@@ -421,6 +424,7 @@ const start = (): void => {
           defaultX: Math.max(0, window.innerWidth - 320 - 150 * (idx + 1)),
           subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
           onFlightEnd: mkFlightEnd(flyState, byPid, p.id),
+          defaultActions: (gid) => defaultActionsFor([...BUILTIN_PACKS, ...ctx.customs], gid),
         }, store)
         byPid.set(p.id, h)
         extraPets.set(p.id, h)
