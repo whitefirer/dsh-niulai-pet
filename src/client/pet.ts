@@ -388,27 +388,78 @@ function synthCrackle(ctx: AudioContext): void {
 }
 
 /** 引擎低吼（警车）：锯齿+方波双层，转速上拉后回落；durS 可传（drive 全程版随驾驶时长）。 */
+/** 轿车/警车引擎：怠速「突突」点火感 → 中低转拉上 → 快放油回落。
+ *  四冲程节奏感靠怠速段 22Hz 方波门控音量（突突突），转速上来后门控淡出变连续轰鸣；
+ *  双失谐锯齿主腔 + 方波亚谐 + 随转速爬升的排气噪声。durS 可传 drive 全程版。 */
 function synthEngine(ctx: AudioContext, durS = 0.95): void {
   const t0 = ctx.currentTime
   const dur = durS
-  const make = (type: OscillatorType, f0: number, f1: number, vol: number): void => {
+  // 转速曲线：怠速 78Hz 微颤 → 中段拉到 150Hz → 放油落回 100Hz
+  const pts = 100
+  const fCurve = new Float32Array(pts)
+  for (let i = 0; i < pts; i++) {
+    const t = i / (pts - 1)
+    if (t < 0.55) fCurve[i] = 78 + Math.pow(t / 0.55, 1.3) * 78 + Math.sin(t * 90) * 2.5
+    else if (t < 0.85) fCurve[i] = 156 - ((t - 0.55) / 0.3) * 48
+    else fCurve[i] = 108 - ((t - 0.85) / 0.15) * 6 + Math.sin(t * 60) * 2
+  }
+  const out = ctx.createGain()
+  const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
     const osc = ctx.createOscillator()
     osc.type = type
-    osc.frequency.setValueAtTime(f0, t0)
-    osc.frequency.exponentialRampToValueAtTime(f1, t0 + 0.28 * dur / 0.95)
+    osc.frequency.setValueAtTime(78 * mul, t0)
+    osc.frequency.setValueCurveAtTime(fCurve, t0, dur)
+    osc.frequency.setValueAtTime(102 * mul, t0 + dur) // 钉住末值防回跳
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
-    lp.frequency.value = 700
+    lp.frequency.value = lpHz
     const g = ctx.createGain()
-    g.gain.setValueAtTime(0.0001, t0)
-    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.045)
-    g.gain.exponentialRampToValueAtTime(vol * (dur > 1 ? 0.62 : 0.5), t0 + 0.5 * dur / 0.95)
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
-    osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
-    osc.start(t0); osc.stop(t0 + dur)
+    g.gain.value = vol
+    osc.connect(lp); lp.connect(g); g.connect(out)
+    osc.start(t0); osc.stop(t0 + dur + 0.15)
   }
-  make('sawtooth', 68, 150, 0.2)
-  make('square', 34, 72, 0.14)
+  attach('sawtooth', 0.3, 1, 650)      // 主腔
+  attach('sawtooth', 0.14, 1.018, 750) // 失谐第二嗓（缸体感）
+  attach('square', 0.16, 0.5, 300)     // 低吼亚谐
+  attach('square', 0.05, 2.0, 1500)    // 机械噪（中低幅不清亮）
+  // 排气破音：带通随转速爬升
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  const noise = ctx.createBufferSource()
+  noise.buffer = buf
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 0.9
+  const nlp = ctx.createBiquadFilter()
+  nlp.type = 'lowpass'
+  nlp.frequency.value = 500
+  bp.frequency.value = 160
+  const nGain = ctx.createGain()
+  nGain.gain.value = 0.42
+  noise.connect(bp); bp.connect(nlp); nlp.connect(nGain); nGain.connect(out)
+  noise.start(t0); noise.stop(t0 + dur + 0.15)
+  // 怠速段突突门控：22Hz 方波 AM，随转速上拉淡出（>0.55 后门控为常开）
+  const gate = ctx.createGain()
+  gate.gain.setValueAtTime(1, t0)
+  const gateOsc = ctx.createOscillator()
+  gateOsc.type = 'square'
+  // 22Hz → 0.55 处频率不动但幅度衰减到 0（门控深度：1→0）
+  const gateDepth = ctx.createGain()
+  gateDepth.gain.setValueAtTime(0.55, t0)
+  gateDepth.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5 * dur)
+  gateOsc.frequency.value = 22
+  gateOsc.connect(gateDepth); gateDepth.connect(gate.gain)
+  gate.gain.value = 1 - 0.0 // 直流分量 1，深度控制脉冲成分
+  out.connect(gate); gate.connect(volDest(ctx))
+  gateOsc.start(t0); gateOsc.stop(t0 + dur + 0.15)
+  // 总包络：起音 → 保持 → 放油 → 归零
+  out.gain.setValueAtTime(0, t0)
+  out.gain.linearRampToValueAtTime(0.4, t0 + 0.1 * dur)
+  out.gain.setValueAtTime(0.4, t0 + 0.55 * dur)
+  out.gain.linearRampToValueAtTime(0.15, t0 + 0.82 * dur)
+  out.gain.linearRampToValueAtTime(0.04, t0 + 0.92 * dur)
+  out.gain.linearRampToValueAtTime(0, t0 + dur)
 }
 
 /** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 快放油（转速+音量同跌）→ 短怠速尾。
@@ -461,8 +512,9 @@ function synthMotor(ctx: AudioContext, durS = 1.1): void {
   }
   bp.frequency.setValueCurveAtTime(bpCurve, t0, dur)
   bp.frequency.setValueAtTime(650, t0 + dur) // 同上：钉住不回跳
+  // 排气噪声连续（拍板：连续版，不做断续门控）：带通随转速爬升，持续「呼——」的排气声
   const nGain = ctx.createGain()
-  nGain.gain.value = 0.45
+  nGain.gain.value = 0.5
   noise.connect(bp); bp.connect(nGain); nGain.connect(out)
   noise.start(t0); noise.stop(t0 + dur + 0.15)
   // 总包络：音头起 → 咆哮保持 → 快放油 → 短怠速尾 → 精确归零（源头停时增益已是 0；
@@ -476,38 +528,68 @@ function synthMotor(ctx: AudioContext, durS = 1.1): void {
   out.gain.linearRampToValueAtTime(0, t0 + dur)
 }
 
-/** 警笛：高-低滑音循环 3 轮（380→680→380 连续摆动），中国警笛的「哇-哇」；正弦滑行 + 轻颤。 */
+/** 警笛：中式「嘀-呜」高低转调滑音（阶梯式，非连续摆）。高音段≈880Hz 0.30s →
+ *  0.05s 快速下滑至 620Hz 低音段 0.34s → 0.05s 回滑 880Hz，5 轮≈3.7s。
+ *  音色：方波+锯齿混合带通眯啸（电子警报器），轻颤音，包络整条渐变不爆音。 */
 function synthSiren(ctx: AudioContext): void {
   const t0 = ctx.currentTime
-  const dur = 3.6
-  // 频率滑行曲线：三角波 380↔680（setValueCurveAtTime 采样曲线，避免锯齿感）
-  const pts = 120
+  const HI = 880, LO = 620
+  const HI_D = 0.30, LO_D = 0.34, GLIDE = 0.05
+  const ROUNDS = 5
+  const dur = ROUNDS * (HI_D + LO_D + 2 * GLIDE) // ≈3.7s
+  // 音高曲线：阶梯+快速滑音，120 点采样
+  const pts = 160
   const curve = new Float32Array(pts)
+  const period = HI_D + LO_D + 2 * GLIDE
   for (let i = 0; i < pts; i++) {
-    const ph = (i / (pts - 1)) * 6 * Math.PI // 3 个上下周期
-    curve[i] = 530 + 150 * Math.sin(ph - Math.PI / 2)
+    const t = (i / (pts - 1)) * ROUNDS * period
+    const ph = t % period
+    if (ph < HI_D) curve[i] = HI
+    else if (ph < HI_D + GLIDE) {
+      const k = (ph - HI_D) / GLIDE
+      curve[i] = HI - (HI - LO) * (k * k * (3 - 2 * k)) // smoothstep 滑落
+    } else if (ph < HI_D + GLIDE + LO_D) curve[i] = LO
+    else {
+      const k = (ph - HI_D - GLIDE - LO_D) / GLIDE
+      curve[i] = LO + (HI - LO) * (k * k * (3 - 2 * k)) // smoothstep 回升
+    }
   }
   const osc = ctx.createOscillator()
-  osc.type = 'sine'
-  osc.frequency.setValueAtTime(530, t0)
+  osc.type = 'square'
+  osc.frequency.setValueAtTime(HI, t0)
   osc.frequency.setValueCurveAtTime(curve, t0, dur)
-  const lfo = ctx.createOscillator()
-  lfo.frequency.value = 8
-  const lfoGain = ctx.createGain()
-  lfoGain.gain.value = 6 // 轻微颤抖更像警笛啸声
-  lfo.connect(lfoGain)
-  lfoGain.connect(osc.frequency)
+  osc.frequency.setValueAtTime(LO, t0 + dur) // 钉住末值
+  const osc2 = ctx.createOscillator()
+  osc2.type = 'sawtooth'
+  osc2.frequency.setValueAtTime(HI, t0)
+  osc2.frequency.setValueCurveAtTime(curve, t0, dur)
+  osc2.frequency.setValueAtTime(LO, t0 + dur)
   const lp = ctx.createBiquadFilter()
-  lp.type = 'lowpass'
-  lp.frequency.value = 2400
-  const g = ctx.createGain()
-  g.gain.setValueAtTime(0.0001, t0)
-  g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.08)
-  g.gain.setValueAtTime(0.15, t0 + dur - 0.25)
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
-  osc.connect(lp); lp.connect(g); g.connect(volDest(ctx))
-  osc.start(t0); lfo.start(t0)
-  osc.stop(t0 + dur + 0.05); lfo.stop(t0 + dur + 0.05)
+  lp.type = 'bandpass'
+  lp.frequency.value = 1400
+  lp.Q.value = 0.55
+  const lp2 = ctx.createBiquadFilter()
+  lp2.type = 'lowpass'
+  lp2.frequency.value = 3800
+  const gO = ctx.createGain()
+  gO.gain.value = 0.075
+  const g2O = ctx.createGain()
+  g2O.gain.value = 0.04
+  const lfo = ctx.createOscillator()
+  lfo.frequency.value = 6
+  const lfoG = ctx.createGain()
+  lfoG.gain.value = 4.5
+  lfo.connect(lfoG); lfoG.connect(osc.frequency)
+  const env = ctx.createGain()
+  env.gain.setValueAtTime(0.0001, t0)
+  env.gain.exponentialRampToValueAtTime(0.16, t0 + 0.06)
+  env.gain.setValueAtTime(0.16, t0 + dur - 0.3)
+  env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  osc.connect(gO); gO.connect(lp)
+  osc2.connect(g2O); g2O.connect(lp)
+  lp.connect(lp2); lp2.connect(env); env.connect(volDest(ctx))
+  osc.start(t0); osc2.start(t0); lfo.start(t0)
+  osc.stop(t0 + dur + 0.05); osc2.stop(t0 + dur + 0.05); lfo.stop(t0 + dur + 0.05)
 }
 
 export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: VoiceDebugBus): PetHandle {
@@ -1045,6 +1127,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     if (text === '') return
     if (!system && !talkative) return // 装饰性气泡（喊声/回话/唠叨）随开关关闭
     bubbleText.textContent = text
+    // 反镜像直接按 JS 的 facing 写死（不用 CSS 变量：调头路径可能只改 transform
+    // 忘了同步 --face，var 会拿到过期值导致文字镜像；facing 是唯一真相）
+    bubbleText.style.transform = `scaleX(${facing})`
     root.style.setProperty('--pop', '1')
     window.clearTimeout(bubbleTimer)
     bubbleTimer = window.setTimeout(() => {
