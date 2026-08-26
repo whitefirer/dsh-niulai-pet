@@ -788,15 +788,19 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
 
   const bubble = document.createElement('div')
-  // --face 抵消 root 的 scaleX 朝向翻转（文字不能镜像）；--pop 控制显隐缩放
+  // --pop 控制显隐缩放（外层，0.18s 过渡）；反镜像放到内层文字 span（无过渡、瞬时生效）——
+  // 混合在同一 transform 里时，朝向翻转会让 scaleX 走动画插值（文本镜像过渡还穿过 0 宽，踩过）
   // bottom 抬高给完成光环让位（光环 103%，环高约 22px，气泡压在其上方）
   bubble.style.cssText = [
     'position:absolute', 'bottom:calc(103% + 30px)', 'left:50%',
-    'transform:translateX(-50%) scale(var(--pop,0)) scaleX(var(--face,1))',
+    'transform:translateX(-50%) scale(var(--pop,0))',
     'background:#fff', 'color:#c2502a', 'font:700 15px/1.6 system-ui,sans-serif',
     'padding:2px 12px', 'border-radius:14px', 'border:2px solid #c2502a',
     'white-space:nowrap', 'pointer-events:none', 'transition:transform .18s ease-out',
   ].join(';')
+  const bubbleText = document.createElement('span')
+  bubbleText.style.cssText = 'display:inline-block;transform:scaleX(var(--face,1));transition:none'
+  bubble.appendChild(bubbleText)
 
   const menu = document.createElement('div')
   menu.style.cssText = [
@@ -1040,7 +1044,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   const showBubble = (text: string, ms: number, system = false): void => {
     if (text === '') return
     if (!system && !talkative) return // 装饰性气泡（喊声/回话/唠叨）随开关关闭
-    bubble.textContent = text
+    bubbleText.textContent = text
     root.style.setProperty('--pop', '1')
     window.clearTimeout(bubbleTimer)
     bubbleTimer = window.setTimeout(() => {
@@ -2019,10 +2023,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   }
 
   /** 戳一下（点击宠物）：喊 + 绑定动作，肯定要跳；互动即停循环喊（妈妈回一句）。
-   *  红温：爆发中不理人；这一戳把火气点爆了也只演爆发（扭头哼唧），不演正常戳反应。 */
+   *  红温：爆发中不理人（0.5s 甩头窗口）；气头冷却期照常应声出气泡，只是不积火（加火被 addHeat 内部冷却门挡住）。 */
   const poke = (): void => {
     if (mood === 'drag' || mood === 'fly' || destroyed || raging) return
-    if (Date.now() < rageCooldownUntil) return // 气头上不理人
     if (heatOn && addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
