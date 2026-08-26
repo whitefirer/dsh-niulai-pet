@@ -50,6 +50,7 @@ const zh = {
   sleepEnabled: '闲置打盹（变灰变矮）',
   walkEnabled: '随意走动（闲置游走）',
   groundOffset: '离地高度（px）',
+  groundOffsetHint: '负值表示沉入地面以下，正值抬高离地（上下不设限）',
   physics: '物理碰撞（互相挤/弹飞）',
   maxPets: '桌宠数量上限',
   replyNiulai: '妈妈回应「牛来」',
@@ -165,6 +166,7 @@ const en: Record<keyof typeof zh, string> = {
   sleepEnabled: 'Idle nap (dims & squashes)',
   walkEnabled: 'Wander (idle walk)',
   groundOffset: 'Ground height (px)',
+  groundOffsetHint: 'Negative sinks below ground, positive lifts up (unbounded)',
   physics: 'Pet physics (jostle & bounce)',
   maxPets: 'Max pets on screen',
   replyNiulai: 'Mom answers "Niulai!"',
@@ -441,11 +443,14 @@ function NumberField(props: { value: number; min: number; max: number; disabled:
     if (props.float !== true) n = Math.round(n)
     props.onCommit(n)
   }
+  // ±Infinity 表示不设限：HTML 属性省略（input 不接受 Infinity），JS 钳制自然放行
+  const minAttr = Number.isFinite(props.min) ? props.min : undefined
+  const maxAttr = Number.isFinite(props.max) ? props.max : undefined
   return (
     <input
       type="number"
-      min={props.min}
-      max={props.max}
+      min={minAttr}
+      max={maxAttr}
       step={props.float === true ? 0.01 : 1}
       aria-label={props.label}
       style={{
@@ -1299,16 +1304,8 @@ export function NiulaiCard(props: NiulaiCardProps) {
             <Row label={t('walkEnabled')}>
               <Switch on={cfg.walkEnabled} disabled={disabled} label={t('walkEnabled')} onChange={(on) => { props.set({ walkEnabled: on }) }} />
             </Row>
-            <Row label={t('groundOffset')}>
-              <NumberField value={cfg.groundOffset} min={0} max={300} disabled={disabled} label={t('groundOffset')}
-                onCommit={(n) => { props.set({ groundOffset: n }) }} />
-            </Row>
             <Row label={t('physics')}>
               <Switch on={cfg.physics} disabled={disabled} label={t('physics')} onChange={(on) => { props.set({ physics: on }) }} />
-            </Row>
-            <Row label={t('maxPets')}>
-              <NumberField value={cfg.maxPets} min={1} max={15} disabled={disabled} label={t('maxPets')}
-                onCommit={(n) => { props.set({ maxPets: n }) }} />
             </Row>
             <Row label={t('replyNiulai')}>
               <Switch on={cfg.replyNiulai} disabled={disabled} label={t('replyNiulai')} onChange={(on) => { props.set({ replyNiulai: on }) }} />
@@ -1347,6 +1344,15 @@ export function NiulaiCard(props: NiulaiCardProps) {
             {tab === 'advanced'
               ? (
                 <>
+            <Row label={t('groundOffset')}>
+              <NumberField value={cfg.groundOffset} min={-Infinity} max={Infinity} disabled={disabled} label={t('groundOffset')}
+                onCommit={(n) => { props.set({ groundOffset: n }) }} />
+            </Row>
+            <div role="status" style={{ margin: '-4px 0 4px', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('groundOffsetHint')}</div>
+            <Row label={t('maxPets')}>
+              <NumberField value={cfg.maxPets} min={1} max={Infinity} disabled={disabled} label={t('maxPets')}
+                onCommit={(n) => { props.set({ maxPets: n }) }} />
+            </Row>
             <Row label={t('voiceControl')}>
               <Switch on={cfg.voiceControl} disabled={disabled || !micOk} label={t('voiceControl')} onChange={onVoice} />
             </Row>

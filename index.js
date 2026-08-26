@@ -120,8 +120,8 @@ export const Config = z.object({
   sleepEnabled: z.boolean().default(false),
   /** 随意走动：闲置时随机走位（默认开；关掉原地活动不走位）。 */
   walkEnabled: z.boolean().default(true),
-  /** 离地高度：桌宠站立线距视口底的 px（默认 0=贴底；躲任务栏/Dock 往上调）。 */
-  groundOffset: z.number().step(1).min(0).max(300).default(0),
+  /** 离地高度：桌宠站立线距视口底的 px（默认 0=贴底；负值沉底、正值抬高，上下不设限）。 */
+  groundOffset: z.number().step(1).default(0),
   /** 主宠之外的额外桌宠（每只 id+皮肤+大小+语录；连主上限 maxPets，客户端再围栏）。 */
   extraPets: z.array(z.object({
     id: z.string(),
@@ -150,8 +150,8 @@ export const Config = z.object({
   heatEnabled: z.boolean().default(true),
   /** 隐藏全部桌宠（默认关；开着时从设置卡片喊回来）。 */
   hidden: z.boolean().default(false),
-  /** 桌宠数量上限（连主宠，1-15，默认 10）。 */
-  maxPets: z.number().step(1).min(1).max(15).default(10),
+  /** 桌宠数量上限（连主宠，默认 10；最低 1，不设最高上限）。 */
+  maxPets: z.number().step(1).min(1).default(10),
   /** 循环喊期间开麦，喊「牛来」即停（需 https/localhost + 麦克风授权）。 */
   voiceControl: z.boolean().default(false),
   /** 麦克风设备 id（空 = 系统默认；deviceId 按浏览器源发放，换浏览器缺此设备自动回落默认）。 */

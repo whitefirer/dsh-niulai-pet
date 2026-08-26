@@ -390,12 +390,12 @@ export class ConfigStore {
       sleepEnabled: p.sleepEnabled === true, // 默认不打盹（2026-08-23 起；显式开过的仍开）
       walkEnabled: p.walkEnabled !== false, // 默认随意走动
       groundOffset: typeof p.groundOffset === 'number' && Number.isInteger(p.groundOffset)
-        ? Math.min(300, Math.max(0, p.groundOffset)) : 0,
+        ? p.groundOffset : 0, // 负值合法（沉入地面），不做上下限
       physics: p.physics === true,
       heatEnabled: p.heatEnabled !== false, // 连戳红温默认开
       hidden: p.hidden === true,
       maxPets: typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
-        ? Math.min(15, Math.max(1, p.maxPets)) : 10,
+        ? Math.max(1, p.maxPets) : 10, // 只保底 1，不设最高上限
       petSize: typeof p.petSize === 'number' && Number.isInteger(p.petSize)
         ? Math.min(200, Math.max(72, p.petSize)) : 120,
       petHue: typeof p.petHue === 'number' && Number.isInteger(p.petHue)
@@ -404,7 +404,7 @@ export class ConfigStore {
         ? Math.min(100, Math.max(20, p.petOpacity)) : 100,
       petHueCycle: p.petHueCycle === true,
       extraPets: this.sanitizeExtraPets(p.extraPets, (typeof p.maxPets === 'number' && Number.isInteger(p.maxPets)
-        ? Math.min(15, Math.max(1, p.maxPets)) : 10) - 1),
+        ? Math.max(1, p.maxPets) : 10) - 1),
       voiceControl: p.voiceControl === true,
       micDeviceId: typeof p.micDeviceId === 'string' ? p.micDeviceId : '',
       voiceThreshold: typeof p.voiceThreshold === 'number' && p.voiceThreshold >= 0.3 && p.voiceThreshold <= 0.85
