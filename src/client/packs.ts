@@ -380,7 +380,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
   if (type !== 'character' && type !== 'variant') errors.push(`type: 只支持 character / variant，收到 ${JSON.stringify(type)}`)
   const id = typeof json.id === 'string' ? json.id : ''
   if (!ID_RE.test(id)) errors.push(`id: 必须 2~32 位小写字母/数字/连字符，收到 ${JSON.stringify(json.id)}`)
-  else if (type === 'character' && knownCharIds.includes(id)) errors.push(`id: 角色 ${id} 已存在（内置或已安装），换个 id 或先删除旧包`)
+  else if (type === 'character' && knownCharIds.includes(id)) warnings.push(`id: 角色 ${id} 已存在（内置或已安装）——继续导入将覆盖旧包`)
   const name = typeof json.name === 'string' ? json.name.trim() : ''
   if (name === '') errors.push('name: 必填，角色显示名不能为空')
   if (typeof json.version !== 'string' || json.version.trim() === '') errors.push('version: 必填，如 "1.0.0"')
@@ -799,6 +799,12 @@ export class PackRegistry {
     const data = new Uint8Array(await file.arrayBuffer())
     const known = this.snapshot.characters.map((c) => c.id)
     const { def, warnings } = parsePack(data, known)
+    // 同 id 覆盖：对比已装版本，补一条「旧版 → 新版」差异提示（用户确认后覆盖）
+    const old = this.snapshot.characters.find((c) => c.id === def.id && !c.custom)
+      ?? this.snapshot.characters.find((c) => c.id === def.id)
+    if (old !== undefined && (old.version ?? '') !== def.version) {
+      warnings.push(`版本差异：已装 ${old.version ?? '?'}，导入后将更新为 ${def.version}（内容以新版为准）`)
+    }
     if (def.extendedFrom !== undefined) {
       const target = this.snapshot.characters.find((c) => c.id === def.extendedFrom)
       if (target !== undefined) return { def: applyVariant(target, def), warnings }

@@ -1246,7 +1246,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
           <div style={{ borderTop: `1px solid ${colors.border}`, margin: '0 16px', padding: '4px 0 12px' }}>
             {!writable ? <p role="status" style={{ margin: '12px 0 0', fontSize: 12, lineHeight: 1.5, color: colors.labelTertiary }}>{t('readOnly')}</p> : null}
             <div style={{ display: 'flex', gap: 6, margin: '10px 0 2px' }}>
-              {(['pet', 'global', 'custom', 'advanced'] as const).map((id) => (
+              {(['pet', 'global', 'advanced', 'custom'] as const).map((id) => (
                 <button
                   key={id}
                   type="button"

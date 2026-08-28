@@ -798,6 +798,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let voiceKeywords = initCfg.voiceKeywords
   let micGain = initCfg.micGain
   let mood: Mood = 'idle'
+  /** 动作代际：每次 runAction 成立新代；被 poke 顶掉（放行重开）的旧代
+   *   done 回调凭代际判死，不得抢新动作的 mood/收尾（踩过：旧滚的 done 把
+   *   新滚的 mood 清回 idle，新滚 step 见 mood 不符即死、rotate 被清——球图
+   *   还在但平移不转）。 */
+  let actionGen = 0
   let destroyed = false
   /** 钉住中（合影 C 位）：behave 不随机游走。 */
   let pinned = false
@@ -1437,6 +1442,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   /** 熊猫翻滚：绕重心滚 360° 并向朝向平移一段。 */
   const roll = async (): Promise<void> => {
     breathe.cancel() // 内联 transform 与 pause 态的 breathe 叠加会被顶掉，必须 cancel
+    // 本滚所属代：poke 顶掉（代际前进）后，旧滚的 rAF 循环与收尾必须全收手——
+    // 否则旧滚收尾把新滚的画面清掉（img.transform/球图/rollingBall/breathe 被
+    // 踩回），新滚只剩球图平着滑（用户见「变球平移」）
+    const gen = actionGen
+    const alive = (): boolean => !destroyed && gen === actionGen && mood === 'celebrate'
     const hadBallImg = cur().imageRoll !== undefined
     rollingBall = hadBallImg
     if (!hadBallImg) {
@@ -1451,7 +1461,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       const start = performance.now()
       await new Promise<void>((resolve) => {
         const step = (now: number): void => {
-          if (destroyed || mood !== 'celebrate') { resolve(); return }
+          if (!alive()) { resolve(); return }
           const t = Math.min(1, (now - start) / dur)
           x = from + dist * t
           const yOff = -Math.sin(t * Math.PI) * 16
@@ -1470,10 +1480,14 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       // 球绕自身中心转：img 默认 origin 是 50% 100%（站立图锚底），不换的话
       // 卷球会绕底部边缘摆，看起来球体在"跷跷板"而非轮式滚动（踩过）
       img.style.transformOrigin = '50% 50%'
-      // 滚动声：隆隆底 + 甲片撞击脉冲，随 3.6s 全程滚动（静音/音量 0 自吞）
+      // 滚动声：隆隆底 + 甲片撞击脉冲，随 3.6s 全程滚动（静音/音量 0 自吞）。
+      // try/catch 防音频在特定环境抛错中断滚动动画——球图已切但 step 未注册，
+      // 表现就是「变球后平移不转」（踩过）
       if (!muted && masterVolume > 0) {
-        const rctx = audioCtx()
-        if (rctx !== null) synthRoll(rctx, 3.6)
+        try {
+          const rctx = audioCtx()
+          if (rctx !== null) synthRoll(rctx, 3.6)
+        } catch { /* 音频异常不拖垮滚动演出 */ }
       }
       const homeX = x
       const homeFacing = facing
@@ -1487,7 +1501,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       let cumDist = 0 // 轮转角 = cumDist/radius（rad）
       await new Promise<void>((resolve) => {
         const step = (now: number): void => {
-          if (destroyed || mood !== 'celebrate') { resolve(); return }
+          if (!alive()) { resolve(); return }
           const t = Math.min(1, (now - start) / dur)
           const prevX = x
           let nx: number
@@ -1513,6 +1527,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       x = homeX
       setFacing(homeFacing)
     }
+    // 收尾同样按代际让位：被 poke 顶掉的旧滚不得清理画面——新滚的球图/rotate/
+    // transformOrigin/rollingBall/breathe 全是它自己在管，旧滚踩一手就「变球平移」
+    if (!alive()) return
     img.style.transform = ''
     img.style.transformOrigin = '50% 100%'
     if (hadBallImg) { img.src = skinIdle(); rollingBall = false } // 球图用完换回常态（警灯皮走 skinIdle 拿到当前灯相位）
@@ -1935,7 +1952,11 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     // transform，会把 roll 的每次 rotate() 遮住——球「平移不转」就是这么来的（踩过）
     for (const a of img.getAnimations()) a.cancel()
     mood = 'celebrate'
-    const done = (): void => { if (!destroyed && mood === 'celebrate') mood = 'idle' }
+    const gen = ++actionGen // 本代动作的收尾权：poke 顶掉后旧代 done 无权清 mood
+    const done = (): void => {
+      if (destroyed || gen !== actionGen) return // 被顶掉的旧代（如 poke 放行重开）不抢新动作的 mood
+      if (mood === 'celebrate') mood = 'idle'
+    }
     const run = pick === 'dance' ? dance()
       : pick === 'spin' ? spin()
         : pick === 'sway' ? sway()
@@ -2217,7 +2238,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     // 并给即将重开的动作开路；否则 runAction 的 mood==='celebrate' 守卫会把
     // 这次戳弹掉——表现成「走路中戳它没滚」（踩过：任务完成庆祝抢跑 3.6s，
     // 走路中戳全程被吞，视觉上是平移）。
-    if (mood === 'celebrate') mood = 'idle'
+    // 代际 +1：旧动作收尾无权清新动作的 mood（旧代 done 凭 gen 判死）。
+    if (mood === 'celebrate') { mood = 'idle'; actionGen++ }
     if (heatOn && addHeat()) return
     pendingCelebrateGen++ // 戳 = 用户已应声：延迟中的完成庆祝判死
     // 循环/连喊在放时戳 = 应声停它：妈妈回一句即可，别再喊一声「妈妈」当复读机
