@@ -102,6 +102,8 @@ export interface SkinDef {
   doneVoice?: VoiceName
   /** 完成庆祝光环（可选；幽灵系配置它，任务完成时头顶金环浮现 3.6s；缺省无）。 */
   halo?: boolean
+  /** 默认禁止走动（角色包声明；选用该皮肤时走动开关落到 false，用户另行调整优先；缺省走动，适合植物/静物）。 */
+  defaultWalkable?: boolean
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
 }
@@ -709,19 +711,26 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
       ? c.petOpacity
       : (c.extraPets.find((p) => p.id === petId)?.opacity
           ?? skins.find((s) => s.id === mySkinId(c))?.defaultOpacity ?? 100)
+  /** 本宠走动开关：主宠读全局 walkEnabled；额外表读各自条目（缺省回全局开关）。
+   *  皮肤包的 defaultWalkable 在换肤时落到这些字段上（card.tsx/pet.ts 换肤处理）。 */
+  const myWalkOn = (c: PetConfig): boolean =>
+    petId === 'main'
+      ? c.walkEnabled
+      : (c.extraPets.find((p) => p.id === petId)?.walkEnabled ?? c.walkEnabled)
   /** 写本宠皮肤：主宠写全局 skin；额外表读-改-写自己的条目。
-   *  换皮肤时大小/不透明度/色相落到新皮肤的默认（用户之后再调优先；皮肤高矮质感颜色是外观固有属性）。 */
+   *  换皮肤时大小/不透明度/色相/走动落到新皮肤的默认（用户之后再调优先；皮肤高矮质感颜色是外观固有属性）。 */
   const setMySkin = (skin: string): void => {
     const def = skins.find((s) => s.id === skin)
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
     const hue = def?.defaultHue ?? 0
     const hueCycle = def?.defaultHueCycle ?? false
+    const walkEnabled = def?.defaultWalkable ?? true
     if (petId === 'main') {
-      config.set({ skin, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle })
+      config.set({ skin, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle, walkEnabled })
       return
     }
-    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity, hue, hueCycle } : p)
+    const list = config.getSnapshot().extraPets.map((p) => p.id === petId ? { ...p, skin, size, opacity, hue, hueCycle, walkEnabled } : p)
     config.set({ extraPets: list })
   }
   /** 写本宠色相：主宠写 petHue；额外表读-改-写自己的条目。 */
@@ -782,7 +791,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   let shoutLoopOn = initCfg.shoutLoop
   let replyOn = initCfg.replyNiulai
   let sleepOn = initCfg.sleepEnabled
-  let walkOn = initCfg.walkEnabled
+  let walkOn = myWalkOn(initCfg)
   let groundOff = initCfg.groundOffset
   let physicsOn = initCfg.physics
   let heatOn = initCfg.heatEnabled
@@ -2697,7 +2706,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     customSound = c.customSound
     sleepOn = c.sleepEnabled
     if (!sleepOn) wakeFromSleep() // 关打盹时若正睡着：立刻回正常态
-    walkOn = c.walkEnabled
+    walkOn = myWalkOn(c)
     groundOff = c.groundOffset
     root.style.bottom = `${groundOff}px` // 离地高度（全局共享，各实例同步）
     physicsOn = c.physics

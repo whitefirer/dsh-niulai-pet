@@ -1180,7 +1180,7 @@ export function NiulaiCard(props: NiulaiCardProps) {
     packSnap.skins.find((s) => s.id === skinId)?.defaultHue ?? 0
   const skinDefHueCycle = (skinId: string): boolean =>
     packSnap.skins.find((s) => s.id === skinId)?.defaultHueCycle ?? false
-  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, hueCycle: cfg.petHueCycle, opacity: cfg.petOpacity }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), hueCycle: p.hueCycle ?? skinDefHueCycle(p.skin), opacity: p.opacity ?? skinDefOpacity(p.skin) }))]
+  const petList = [{ id: 'main', skin: cfg.skin, size: cfg.petSize, hue: cfg.petHue, hueCycle: cfg.petHueCycle, opacity: cfg.petOpacity, walk: cfg.walkEnabled }, ...cfg.extraPets.map((p) => ({ id: p.id, skin: p.skin, size: p.size ?? cfg.petSize, hue: p.hue ?? skinDefHue(p.skin), hueCycle: p.hueCycle ?? skinDefHueCycle(p.skin), opacity: p.opacity ?? skinDefOpacity(p.skin), walk: p.walkEnabled ?? cfg.walkEnabled }))]
   const target = petList.find((p) => p.id === petSel) ?? petList[0]
   const targetSkinName = packSnap.skins.find((s) => s.id === target.skin)?.name ?? target.skin
   /** 当前对象皮肤的默认大小/不透明度/色相（重置按钮目标值）。 */
@@ -1191,14 +1191,15 @@ export function NiulaiCard(props: NiulaiCardProps) {
   const targetDone = cfg.actions[target.skin]?.done ?? targetDefaults.done
   const targetPoke = cfg.actions[target.skin]?.poke ?? targetDefaults.poke
   const setTargetSkin = (v: string): void => {
-    // 换皮肤大小/透明度/色相/流光落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
+    // 换皮肤大小/透明度/色相/流光/走动落到新皮肤的默认（与 pet.ts 菜单换肤同语义）
     const def = packSnap.skins.find((s) => s.id === v)
     const size = def?.defaultSize ?? 120
     const opacity = def?.defaultOpacity ?? 100
     const hue = def?.defaultHue ?? 0
     const hueCycle = def?.defaultHueCycle ?? false
-    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle })
-    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity, hue, hueCycle } : p) })
+    const walkEnabled = def?.defaultWalkable ?? true
+    if (target.id === 'main') props.set({ skin: v, petSize: size, petOpacity: opacity, petHue: hue, petHueCycle: hueCycle, walkEnabled })
+    else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, skin: v, size, opacity, hue, hueCycle, walkEnabled } : p) })
   }
   const setTargetSize = (v: number): void => {
     if (target.id === 'main') props.set({ petSize: v })
@@ -1543,6 +1544,13 @@ export function NiulaiCard(props: NiulaiCardProps) {
                   )
                   : null}
               </span>
+            </Row>
+            <Row label={petList.length > 1 ? `${t('walkEnabled')} · ${targetSkinName}` : t('walkEnabled')}>
+              <Switch on={target.walk} disabled={disabled} label={t('walkEnabled')}
+                onChange={(on) => {
+                  if (target.id === 'main') props.set({ walkEnabled: on })
+                  else props.set({ extraPets: cfg.extraPets.map((p) => p.id === target.id ? { ...p, walkEnabled: on } : p) })
+                }} />
             </Row>
             <Row label={`${t('doneAction')} · ${targetSkinName}`}>
               <select

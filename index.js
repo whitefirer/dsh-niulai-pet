@@ -133,6 +133,8 @@ export const Config = z.object({
     opacity: z.number().step(1).min(20).max(100).default(100),
     /** 本只流光变色（缓慢循环色相，默认关；配置里的色相作基底色）。 */
     hueCycle: z.boolean().default(false),
+    /** 本只走动开关（缺省跟随全局 walkEnabled；皮肤包声明不走动的会在选肤时落 false）。 */
+    walkEnabled: z.boolean().optional(),
     /** 本只专属唠叨语录（空 = 跟随全局 quips 链：全局自定义 → 内置池）。 */
     quips: z.array(z.string()).default([]),
   })).default([]),

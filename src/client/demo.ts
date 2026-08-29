@@ -196,7 +196,8 @@ function mountPackImport(ctx: DemoCtx): void {
       ctx.customs = [...ctx.customs.filter((c) => c.id !== def.id), def]
       const skins = [...SKINS, ...expandCharacters(ctx.customs)]
       ctx.pushSkins(skins)
-      ctx.store.set({ skin: def.skins[0].id }) // 切过去看效果
+      const firstSkin = def.skins[0]
+      ctx.store.set({ skin: firstSkin.id, ...(firstSkin.defaultWalkable === false ? { walkEnabled: false } : { walkEnabled: true }) }) // 切过去看效果（皮肤包声明不走动的落关）
       showToast(`已载入「${def.name}」（试玩不过夜，刷新即还原）${warnings.length > 0 ? `\n提醒：\n· ${warnings.join('\n· ')}` : ''}`, warnings.length > 0)
     } catch (e) {
       showToast(e instanceof PackParseError ? e.message : String(e), true)

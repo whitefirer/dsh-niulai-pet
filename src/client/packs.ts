@@ -124,6 +124,8 @@ export interface PackSkinDef {
   halo?: boolean
   /** 果冻体质：落地多段阻尼弹跳（替代单次压扁）+ 走路身体挤压摆动（替代左右倾）。 */
   jelly?: boolean
+  /** 默认禁止走动（选用该皮肤时走动开关落到 false，用户另行调整优先；缺省走动，适合植物/静物）。 */
+  defaultWalkable?: boolean
 }
 
 /** 角色（character）：声音 + 动作 + 事件 + 语录；皮肤是外观。 */
@@ -279,6 +281,7 @@ function expandSkin(char: CharacterDef, skin: PackSkinDef): SkinDef {
     ...((skin.doneSounds?.length ?? 0) > 0 ? { doneSounds: skin.doneSounds } : {}),
     ...(skin.halo === true ? { halo: true } : {}),
     ...(skin.jelly === true ? { jelly: true } : {}),
+    ...(skin.defaultWalkable === false ? { defaultWalkable: false } : {}),
   }
 }
 
@@ -322,6 +325,17 @@ const MIME: Record<string, string> = { png: 'image/png', webp: 'image/webp', mp3
 
 function isRec(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** semver 三段比较：a<b 返回负，相等 0，a>b 返回正。 */
+function cmpVersion(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d
+  }
+  return 0
 }
 
 function toDataurl(bytes: Uint8Array, path: string): string {
@@ -384,6 +398,12 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
   const name = typeof json.name === 'string' ? json.name.trim() : ''
   if (name === '') errors.push('name: 必填，角色显示名不能为空')
   if (typeof json.version !== 'string' || json.version.trim() === '') errors.push('version: 必填，如 "1.0.0"')
+  // 引擎版本门槛（可选）：低于则提示级警告不拦截——老引擎忽略未知字段，特性只是降级不是坏掉
+  if (json.minEngine !== undefined) {
+    const me = typeof json.minEngine === 'string' ? json.minEngine.trim() : ''
+    if (!/^\d+\.\d+\.\d+$/.test(me)) errors.push(`minEngine: 必须是 x.y.z 形式，收到 ${JSON.stringify(json.minEngine)}`)
+    else if (cmpVersion(__NIULAI_VERSION__, me) < 0) warnings.push(`minEngine: 本包声明需要插件 ≥ ${me}（当前 ${__NIULAI_VERSION__}），新特性可能不生效——建议 dsh plugin update dsh-niulai-pet`)
+  }
   if (type === 'variant') {
     const ext = typeof json.extends === 'string' ? json.extends : ''
     if (ext === '') errors.push('extends: 派生包必填（目标角色 id）')
@@ -595,6 +615,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
         else errors.push(`${at}.splitCount: 必须 2~6 的整数，收到 ${JSON.stringify(s.splitCount)}`)
       }
       const jelly = s.jelly === true
+      if (s.walkable !== undefined && typeof s.walkable !== 'boolean') errors.push(`${at}.walkable: 必须是布尔值，收到 ${JSON.stringify(s.walkable)}`)
 
       if (standOk) {
         skins.push({
@@ -618,6 +639,7 @@ export function parsePack(data: Uint8Array, knownCharIds: readonly string[]): { 
           ...(doneSounds.length > 0 ? { doneSounds } : {}),
           ...(s.halo === true ? { halo: true } : {}),
           ...(jelly ? { jelly: true } : {}),
+          ...(s.walkable === false ? { defaultWalkable: false } : {}),
         })
       }
     })

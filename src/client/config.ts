@@ -62,7 +62,7 @@ export interface PetConfig {
   /** 离地高度 px（0-300，默认 0=贴视口底；全局共享）。 */
   groundOffset: number
   /** 主宠之外的额外桌宠（每只 id 唯一；皮肤/大小/色相/流光/语录按只存，行为配置全局共享）。上限 = maxPets-1。 */
-  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }>
+  extraPets: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; walkEnabled?: boolean; quips?: string[] }>
   /** 桌宠显示高度 px（72-200，默认 120；主宠）。 */
   petSize: number
   /** 色相旋转角度（0-360，默认 0=原色；主宠）。 */
@@ -117,7 +117,7 @@ export interface Persisted {
   sleepEnabled?: boolean
   walkEnabled?: boolean
   groundOffset?: number
-  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }>
+  extraPets?: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; walkEnabled?: boolean; quips?: string[] }>
   petSize?: number
   petHue?: number
   petOpacity?: number
@@ -445,7 +445,7 @@ export class ConfigStore {
       petHue: typeof r.petHue === 'number' ? r.petHue : undefined,
       petOpacity: typeof r.petOpacity === 'number' ? r.petOpacity : undefined,
       petHueCycle: r.petHueCycle === true,
-      extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string; size?: number; hue?: number; quips?: string[] }> : undefined,
+      extraPets: Array.isArray(r.extraPets) ? r.extraPets as Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; walkEnabled?: boolean; quips?: string[] }> : undefined,
       voiceControl: r.voiceControl === true,
       micDeviceId: typeof r.micDeviceId === 'string' ? r.micDeviceId : undefined,
       voiceThreshold: typeof r.voiceThreshold === 'number' ? r.voiceThreshold : undefined,
@@ -467,9 +467,9 @@ export class ConfigStore {
   }
 
   /** 额外表清洗：id/皮肤形状 + 皮肤白名单 + 去重 + 上限 cap 只。 */
-  private sanitizeExtraPets(input: unknown, cap = 2): Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }> {
+  private sanitizeExtraPets(input: unknown, cap = 2): Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; walkEnabled?: boolean; quips?: string[] }> {
     if (!Array.isArray(input)) return []
-    const out: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; quips?: string[] }> = []
+    const out: Array<{ id: string; skin: string; size?: number; hue?: number; hueCycle?: boolean; opacity?: number; walkEnabled?: boolean; quips?: string[] }> = []
     const seen = new Set<string>()
     for (const p of input) {
       if (!isRecord(p) || typeof p.id !== 'string' || p.id === '' || seen.has(p.id)) continue
@@ -482,6 +482,7 @@ export class ConfigStore {
         ...(typeof p.hue === 'number' && Number.isInteger(p.hue) && p.hue >= 0 && p.hue <= 360 ? { hue: p.hue } : {}),
         ...(p.hueCycle === true ? { hueCycle: true } : {}),
         ...(typeof p.opacity === 'number' && Number.isInteger(p.opacity) && p.opacity >= 20 && p.opacity <= 100 ? { opacity: p.opacity } : {}),
+        ...(typeof p.walkEnabled === 'boolean' ? { walkEnabled: p.walkEnabled } : {}),
         ...(quips.length > 0 ? { quips } : {}),
       })
       if (out.length >= cap) break
