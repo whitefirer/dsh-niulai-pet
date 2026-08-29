@@ -11,7 +11,7 @@
 import { SKINS } from './skins.js'
 import { BUILTIN_PACKS, applyVariant, defaultActionsFor, expandCharacters, parsePack, PackParseError } from './packs.js'
 import type { CharacterDef } from './packs.js'
-import { mountPet, type PetHandle, type SkinDef } from './pet.js'
+import { mountPet, type PetHandle, type SkinDef, type ActionName } from './pet.js'
 import { ConfigStore } from './config.js'
 import { voiceCapable } from './voice.js'
 
@@ -388,6 +388,9 @@ function mountFun(ctx: DemoCtx, main: PetHandle, extraPets: Map<string, PetHandl
 }
 
 const start = (): void => {
+  // 导演/调试模式（?petdebug=1）：挂 __director 钩子，且模拟任务不再自动跑/手动跑——
+  // 录制期间随机庆祝会把排好的分镜搅乱（庆祝 6s 节流挡不住 20s 一次的自动任务）。
+  const directorMode = new URLSearchParams(location.search).has('petdebug')
   let currentSkins = SKINS
   const skinListeners = new Set<(s: SkinDef[]) => void>()
   const store = new ConfigStore({ skinIds: SKINS.map((s) => s.id), defaultSkin: 'niulai' })
@@ -443,7 +446,7 @@ const start = (): void => {
   syncExtraPets()
   store.subscribe(syncExtraPets)
   const family: PetHandle[] = [] // 全家福阵容（mountFun 填；mountSim 广播要用）
-  mountSim(() => [pet, ...extraPets.values(), ...family], () => flyState.on)
+  mountSim(() => [pet, ...extraPets.values(), ...family], () => flyState.on || directorMode)
   mountMuteBtn(pet)
   mountVoiceBtn(store)
   mountHideBtn(store)
@@ -451,6 +454,73 @@ const start = (): void => {
   mountFun(ctx, pet, extraPets, (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } }, family, flyState, byPid)
   // 验证钩子（playwright 冒烟用）
   ;(window as unknown as { __niulai?: PetHandle }).__niulai = pet
+
+  // 导演接口（仅 ?petdebug=1）：视频分镜脚本的驱动钩子。演员表 cast 独立管理，
+  // spawn 走 forceSkin/forceSize 展示性挂载（同全家福：绕开配置、只数上限与位置记忆，
+  // 不进物理、不游走），remove/removeAll 只清自己挂的，不动主宠/额外表/全家福。
+  if (directorMode) {
+    const cast = new Map<string, { h: PetHandle; skin: string }>()
+    let castSeq = 0
+    const find = (id: string): PetHandle | undefined => cast.get(id)?.h ?? byPid.get(id)
+    const must = (id: string): PetHandle => {
+      const h = find(id)
+      if (h === undefined) throw new Error(`[director] 无此桌宠：${id}`)
+      return h
+    }
+    const director = {
+      /** 在场桌宠清单：主宠 + 额外表 + 演员表（全家福不走导演，不列）。 */
+      list(): Array<{ id: string; skin: string; x: number; size: number }> {
+        const out = [{ id: 'main', skin: store.getSnapshot().skin, x: Math.round(pet.bounds().x), size: Math.round(pet.bounds().w) }]
+        for (const p of store.getSnapshot().extraPets) {
+          const h = extraPets.get(p.id)
+          if (h !== undefined) out.push({ id: p.id, skin: p.skin, x: Math.round(h.bounds().x), size: Math.round(h.bounds().w) })
+        }
+        for (const [id, e] of cast) out.push({ id, skin: e.skin, x: Math.round(e.h.bounds().x), size: Math.round(e.h.bounds().w) })
+        return out
+      },
+      /** 展示性挂载一只（皮肤须已在列表里——自定义包先经 📦 导入）。返回演员 id。 */
+      spawn(skinId: string, opts?: { x?: number; size?: number }): string {
+        const def = currentSkins.find((s) => s.id === skinId)
+        if (def === undefined) throw new Error(`[director] 未知皮肤：${skinId}（角色包没导？）`)
+        const id = `cast-${++castSeq}`
+        const h = mountPet({
+          skins: currentSkins,
+          defaultSkin: skinId,
+          petId: id,
+          defaultX: opts?.x ?? window.innerWidth - 320,
+          forceSkin: skinId,
+          forceSize: opts?.size ?? def.defaultSize ?? 120,
+          subscribeSkins: (fn) => { skinListeners.add(fn); return () => { skinListeners.delete(fn) } },
+          onFlightEnd: mkFlightEnd(flyState, byPid, id),
+          defaultActions: (gid) => defaultActionsFor([...BUILTIN_PACKS, ...ctx.customs], gid),
+        }, store)
+        byPid.set(id, h)
+        cast.set(id, { h, skin: skinId })
+        if (opts?.x !== undefined) h.place(opts.x)
+        return id
+      },
+      act(id: string, action: ActionName): void { must(id).act(action) },
+      poke(id: string): void { must(id).poke() },
+      celebrate(id: string): void { must(id).celebrate() },
+      shout(id: string): void { must(id).shout() },
+      place(id: string, x: number): void { must(id).place(x) },
+      face(id: string, dir: 1 | -1): void { must(id).face(dir) },
+      pin(id: string, on: boolean): void { must(id).setPinned(on) },
+      show(id: string, on: boolean): void { must(id).setVisible(on) },
+      remove(id: string): void {
+        const e = cast.get(id)
+        if (e === undefined) return
+        e.h.destroy()
+        cast.delete(id)
+        byPid.delete(id)
+        flyState.flying.delete(e.h) // 被销毁的不会发落地回调，手动除名（同 closeFamily）
+      },
+      removeAll(): void {
+        for (const id of [...cast.keys()]) director.remove(id)
+      },
+    }
+    ;(window as unknown as { __director?: typeof director }).__director = director
+  }
 }
 
 if (document.readyState === 'loading') {

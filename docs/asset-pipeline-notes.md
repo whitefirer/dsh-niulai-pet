@@ -1,4 +1,4 @@
-# 素材制作笔记（生图 → 透明底 → 角色包）
+# 角色包美术素材制作笔记（生图 → 透明底 → 角色包）
 
 > 桌宠角色包的美术流水线笔记。适合：用生图 API（豆包 Seedream）产出角色素材，
 > 再处理成 `nlpack.zip` 里的透明 png。
@@ -84,4 +84,3 @@
 - 目录：`packs/<系列>/<角色>-pack/`（pack.json + skins/default/*.png + voice/*.mp3）
   与 `<角色>.nlpack.zip` 同目录；分发的 zip 内路径为 `pack.json` + `skins/...` + `voice/...`
   **不要带 `<角色>-pack/` 前缀**（parsePack 按根路径解引用，前缀会让素材找不到）。
-- 系列归组：animals / slime / vehicles / extra / drama / garden（各含安装说明.txt + copy.md）。

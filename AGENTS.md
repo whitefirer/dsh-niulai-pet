@@ -79,6 +79,12 @@ doneVoice?, doneSounds?, jelly? }`。
 PetHandle 公开面：`celebrate/poke/fly/setBusy/setMuted/isMuted/destroy`
 + `bounds()`（位姿 x/y/w）、`place(x)`（摆位，非展示挂载落盘）、`setVisible()`
 （先隐挂载防闪）、`setPinned()`（钉住不游走）、`setTopmost()`（置顶压层）；
+demo 导演专用（不影响插件路径）：`act(name)`（直走 runAction，守卫同源）、
+`shout()`（只喊不出动作）、`face(dir)`（转身，走 setFacing 统一入口）。
+demo 页 `?petdebug=1` 额外挂 `window.__director`（list/spawn/act/poke/celebrate/
+shout/place/face/pin/show/remove/removeAll）：spawn 走 forceSkin/forceSize 展示性
+挂载（演员表独立管理，removeAll 只清自己挂的），该模式下模拟任务卡片不再自动
+跑（防随机庆祝搅分镜）。视频导演脚本不入本仓（playwright 步进驱动 + 逐场录制拼接）。
 PetAssets 可选钩子：`forceSkin/forceSize`（展示性挂载：不写位置记忆、不进物理、
 不游走）、`onFlightEnd`（飞行落地回调，与 flight 收尾同同步段=零闪烁）、
 `onFamilyToggle`（主宠菜单全家福入口）、`highlight`（预览高亮总线）。
@@ -252,6 +258,14 @@ playwright 每次开**全新临时浏览器**：角色包存 IndexedDB，临时�
 - 连喊（shoutCount 1-3）：chain 递归，一声放完接下声（mouthShout 的 onDone）。
 - 合成叫声（moo/whale/squeak/meow/crackle/engine/motor/siren）是 WebAudio 实时合成，参数在 pet.ts 顶部
   `synth*` 函数；AudioContext 在首次 pointerdown 暖场（自动播放策略）。
+- **叫声时长缓存 soundDur 是模块级共享**（2026-08-29）：曾每实例各一份、每只宠物全量探测
+  所有皮肤的 mp3（N 宠 × M 声个 Audio 探针），30 只合影撞 Chromium WebMediaPlayer 上限
+  （≈75，probe 被静默拦、时长全丢）；共享后探针总量与宠物数无关。
+- **setValueCurveAtTime 的「钉末值」锚点不能按旧 t0 算**（2026-08-29 冒烟踩过）：同步函数里的
+  重活（十几万样本的噪声缓冲填充、GC 停顿）会让捕获的 t0 过期——Chrome 把过期曲线起点钳到
+  currentTime、有效终点后移，按 t0+dur 排的锚点落进曲线区间抛 NotSupportedError；曲线终点
+  还会向上取整到渲染量子（128 样本≈2.9ms），正好踩 t0+dur 也判 overlap。规矩：曲线起点现取
+  `Math.max(t0, ctx.currentTime)`，锚点排 `ts+dur+0.01`（engine/motor/siren 三处全这么写）。
 
 ## 素材管线（tools/）
 

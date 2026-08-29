@@ -143,6 +143,12 @@ export interface PetHandle {
   poke(): void
   /** 飞一圈（demo「一起飞」等宿主 UI 用）。 */
   fly(): void
+  /** 导演触发动作（demo 分镜脚本用）：内部直走 runAction，守卫（拖拽/飞行/演出中不叠开）与 poke/celebrate 同源。 */
+  act(name: ActionName): void
+  /** 只喊不出动作（demo 分镜脚本用：妈妈团一声吼这类只要声音的镜头）。 */
+  shout(): void
+  /** 立即转身（demo 分镜摆位用）：走 setFacing 统一入口，--face 与 scaleX 不脱钩。 */
+  face(dir: 1 | -1): void
   /** 当前位姿（demo 全家福排兵/一起飞起降判定用）。 */
   bounds(): { x: number; y: number; w: number }
   /** 摆位（demo 全家福列队重排用；展示性挂载不写位置记忆）。 */
@@ -202,6 +208,10 @@ function fmtDur(sec: number): string {
 
 // ---- WebAudio 合成叫声（零素材、程序合成）----
 let actx: AudioContext | null = null
+/** 叫声时长全局缓存（mp3 元数据预读，嘴型/气泡撑满长尾音用）：所有宠物实例共享——
+ *  否则每只各自全量探测（N 宠 × M 声个 Audio 探针），多宠场景撞 Chromium
+ *  WebMediaPlayer 上限（≈75），探针被静默拦截、时长全丢（30 只合影冒烟踩过）。 */
+const soundDur = new Map<string, number>()
 function audioCtx(): AudioContext | null {
   try {
     if (actx === null) {
@@ -413,16 +423,20 @@ function synthEngine(ctx: AudioContext, durS = 0.95): void {
   const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
     const osc = ctx.createOscillator()
     osc.type = type
-    osc.frequency.setValueAtTime(78 * mul, t0)
-    osc.frequency.setValueCurveAtTime(fCurve, t0, dur)
-    osc.frequency.setValueAtTime(102 * mul, t0 + dur) // 钉住末值防回跳
+    // 曲线起点现取（取 t0 与现取的大者）：t0 经过重活（噪声缓冲填充/GC 停顿）可能已过期，
+    // Chrome 会把过期起点钳到当前时刻、有效终点随之后移，按旧 t0 算的「钉末值」锚点
+    // 会落进曲线区间抛 NotSupportedError（30 只合影冒烟踩过）。+0.01 再躲终点渲染量子取整。
+    const ts = Math.max(t0, ctx.currentTime)
+    osc.frequency.setValueAtTime(78 * mul, ts)
+    osc.frequency.setValueCurveAtTime(fCurve, ts, dur)
+    osc.frequency.setValueAtTime(102 * mul, ts + dur + 0.01) // 钉住末值防回跳
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.value = lpHz
     const g = ctx.createGain()
     g.gain.value = vol
     osc.connect(lp); lp.connect(g); g.connect(out)
-    osc.start(t0); osc.stop(t0 + dur + 0.15)
+    osc.start(ts); osc.stop(ts + dur + 0.15)
   }
   attach('sawtooth', 0.3, 1, 650)      // 主腔
   attach('sawtooth', 0.14, 1.018, 750) // 失谐第二嗓（缸体感）
@@ -471,8 +485,14 @@ function synthEngine(ctx: AudioContext, durS = 0.95): void {
 /** 摩托高转（炸街）：怠速突突 → 双缸咆哮上拉 → 快放油（转速+音量同跌）→ 短怠速尾。
  *  durS 可传：drive 全程版随驾驶时长拉伸（到停车才泄油）。 */
 function synthMotor(ctx: AudioContext, durS = 1.1): void {
-  const t0 = ctx.currentTime
   const dur = durS
+  // 排气噪声缓冲先建先填：十几万个样本的随机填充要几毫秒，而 audio 时钟不等人——
+  // 若先取 t0 再填，t0 已过期：curve 起始被钳到当前时刻、有效终点反而晚于 t0+dur，
+  // 「钉住末值」的 setValueAtTime(t0+dur) 落进曲线区间直接抛 NotSupportedError（踩过）。
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  const t0 = ctx.currentTime
   // 转速曲线：（0-0.62）拉起 85→290Hz，（0.62-0.8）快速放油→135，（0.8-1）怠速微颤回落
   const fCurve = new Float32Array(120)
   for (let i = 0; i < 120; i++) {
@@ -485,26 +505,26 @@ function synthMotor(ctx: AudioContext, durS = 1.1): void {
   const attach = (type: OscillatorType, vol: number, mul: number, lpHz: number): void => {
     const osc = ctx.createOscillator()
     osc.type = type
-    osc.frequency.setValueAtTime(85 * mul, t0)
-    osc.frequency.setValueCurveAtTime(fCurve, t0, dur)
-    // 曲线终点钉住末值——不钉会被后面的 setValueAtTime(起始值) 接管，尾端闪一下音高回跳（踩过）
-    osc.frequency.setValueAtTime(135 * mul, t0 + dur)
+    // 曲线起点现取（同 synthEngine）：GC 停顿也会让 t0 过期，钳位后移会把按旧 t0 算的
+    // 锚点吞进曲线区间抛 NotSupportedError；+0.01 再躲终点渲染量子取整。
+    const ts = Math.max(t0, ctx.currentTime)
+    osc.frequency.setValueAtTime(85 * mul, ts)
+    osc.frequency.setValueCurveAtTime(fCurve, ts, dur)
+    // 曲线终点钉住末值——不钉会被后面的 setValueAtTime(起始值) 接管，尾端闪一下音高回跳（踩过）。
+    osc.frequency.setValueAtTime(135 * mul, ts + dur + 0.01)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.value = lpHz
     const g = ctx.createGain()
     g.gain.value = vol
     osc.connect(lp); lp.connect(g); g.connect(out)
-    osc.start(t0); osc.stop(t0 + dur + 0.15)
+    osc.start(ts); osc.stop(ts + dur + 0.15)
   }
   attach('sawtooth', 0.34, 1, 900)      // 主腔（四冲程）
   attach('square', 0.2, 0.5, 400)       // 低吼亚谐
   attach('sawtooth', 0.12, 1.012, 1400) // 失谐第二嗓（双缸感）
   attach('square', 0.06, 2.0, 2600)     // 高转啸
-  // 排气破音：白噪带通随转速上追回落（炸街的灵魂）
-  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
-  const d = buf.getChannelData(0)
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  // 排气破音：白噪带通随转速上追回落（炸街的灵魂；缓冲在函数头已建好）
   const noise = ctx.createBufferSource()
   noise.buffer = buf
   const bp = ctx.createBiquadFilter()
@@ -516,8 +536,9 @@ function synthMotor(ctx: AudioContext, durS = 1.1): void {
     if (t < 0.62) bpCurve[i] = 550 + Math.pow(t / 0.62, 1.5) * 1600
     else bpCurve[i] = 2150 - ((t - 0.62) / 0.38) * 1500
   }
-  bp.frequency.setValueCurveAtTime(bpCurve, t0, dur)
-  bp.frequency.setValueAtTime(650, t0 + dur) // 同上：钉住不回跳
+  const tsb = Math.max(t0, ctx.currentTime) // 同 attach：钳位漂移防护
+  bp.frequency.setValueCurveAtTime(bpCurve, tsb, dur)
+  bp.frequency.setValueAtTime(650, tsb + dur + 0.01) // 同上：钉住不回跳；+0.01 躲开曲线终点的渲染量子取整
   // 排气噪声连续（拍板：连续版，不做断续门控）：带通随转速爬升，持续「呼——」的排气声
   const nGain = ctx.createGain()
   nGain.gain.value = 0.5
@@ -637,14 +658,15 @@ function synthSiren(ctx: AudioContext): void {
   }
   const osc = ctx.createOscillator()
   osc.type = 'square'
-  osc.frequency.setValueAtTime(HI, t0)
-  osc.frequency.setValueCurveAtTime(curve, t0, dur)
-  osc.frequency.setValueAtTime(LO, t0 + dur) // 钉住末值
+  const ts = Math.max(t0, ctx.currentTime) // 曲线起点现取（钳位漂移防护，见 synthEngine 注）
+  osc.frequency.setValueAtTime(HI, ts)
+  osc.frequency.setValueCurveAtTime(curve, ts, dur)
+  osc.frequency.setValueAtTime(LO, ts + dur + 0.01) // 钉住末值（+0.01 躲曲线终点渲染量子取整）
   const osc2 = ctx.createOscillator()
   osc2.type = 'sawtooth'
-  osc2.frequency.setValueAtTime(HI, t0)
-  osc2.frequency.setValueCurveAtTime(curve, t0, dur)
-  osc2.frequency.setValueAtTime(LO, t0 + dur)
+  osc2.frequency.setValueAtTime(HI, ts)
+  osc2.frequency.setValueCurveAtTime(curve, ts, dur)
+  osc2.frequency.setValueAtTime(LO, ts + dur + 0.01)
   const lp = ctx.createBiquadFilter()
   lp.type = 'bandpass'
   lp.frequency.value = 1400
@@ -1076,8 +1098,7 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
   applyX()
 
   // ---- 叫声 ----
-  // 预读 mp3 元数据拿真实时长：嘴部张合/气泡要撑满「妈~~~~」的长尾音
-  const soundDur = new Map<string, number>()
+  // 时长缓存用模块级 soundDur（见顶部注释）；这里只剩帧尺寸预读是实例级的。
   // 预读各帧尺寸（w=站立高度 PET_H 下渲染宽，h=自然高）：shoutAnim 逐帧动画按
   // 「统一物理缩放」换算显示尺寸（帧高/参考高 × PET_H），倒地宽帧还要锚定视觉中心
   const frameW = new Map<string, { w: number; h: number }>()
@@ -2823,6 +2844,9 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
     celebrate,
     poke,
     fly() { void flyAcross() },
+    act(name) { runAction(name) },
+    shout,
+    face(dir) { setFacing(dir) },
     bounds() { const r = root.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width } },
     /** 摆位（全家福列队重排用；展示性挂载不写位置记忆，主宠等常规模糊落盘——收起合影要能回原位）。 */
     place(v: number) { x = v; clampX(); applyX(); if (!demoDoll) saveMyX(x) },
