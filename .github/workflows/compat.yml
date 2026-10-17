@@ -111,15 +111,17 @@ jobs:
         shell: bash
         run: |
           export DSH_HOME="$RUNNER_TEMP/dsh-ui-home"
-          dsh --profile compat --from-default-profile web --dump-config >/dev/null
+          # --dump-config 会因 profile 里其它 bundle 的 schema 限制返回非零；模板落盘才是目的。
+          dsh --profile compat --from-default-profile web --dump-config >/dev/null 2>&1 || true
           dsh plugin --profile compat add "file:$GITHUB_WORKSPACE" >/dev/null
           dsh --profile compat --no-open --port 0 >"$RUNNER_TEMP/dsh-ui.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           url=""
           for _ in $(seq 1 60); do
-            url="$(grep -o 'dsh web: http://[^ ]*' "$RUNNER_TEMP/dsh-ui.log" | head -1 | sed 's/^dsh web: //')"
-            [ -n "$url" ] && break
+            # set -e + pipefail 下，grep 没命中不能让脚本直接退出。
+            url="$(grep -o 'dsh web: http://[^ ]*' "$RUNNER_TEMP/dsh-ui.log" | head -1 | sed 's/^dsh web: //' || true)"
+            if [ -n "$url" ]; then break; fi
             sleep 1
           done
           if [ -z "$url" ]; then
