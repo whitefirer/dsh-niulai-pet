@@ -9,10 +9,14 @@
 牛来桌宠 —— 在 dsh web 界面角落里养一头《牛来》的小牛。平时呼吸、眨眼、踱步、
 打盹、气泡唠叨；agent 任务一完成，它就蹦出来喊一声「妈~~妈~~」。
 
-桌宠本体在浏览器端（client 半）；host 半（`index.js`）只负责注册 settings
-命名空间——dsh rc.7+ 的设置页「插件配置」区因此有一张牛来桌宠设置卡片，
-配置由 dsh host 持久化（`~/.dsh/settings.yaml`）。rc.6 及更早没有该能力，
-插件照常工作，配置留在 localStorage，只是没有设置卡片。
+桌宠本体在浏览器端（client 半）；host 半（`index.js`）负责注册设置命名空间与
+KWS 资源路由。设置卡片的位置随 dsh 版本不同：
+- **dsh 0.2+**：插件（Plugins）页面 → dsh-niulai-pet 详情页的配置区；
+- **dsh 0.1（rc.7/rc.8）**：设置 → 插件 → 插件配置。
+
+0.1 的配置由 host 持久化（`~/.dsh/settings.yaml`）；0.2 起 host 设置 API 改版，
+插件回退 localStorage（`dsh-niulai-pet:state-v1`），配置按浏览器保存。
+rc.6 及更早没有设置卡片，插件照常工作，配置留在 localStorage。
 **更新后刷新页面即生效，免重启**。
 
 **[在线试玩（免安装）](https://whitefirer.org/niulai-pet/)** —— 同一套代码的
@@ -61,12 +65,15 @@ standalone 页面，模拟任务驱动庆祝；想真养在 dsh 里再往下看�
 （完成=签名动作，戳一下=连跳）。
 
 任务完成信号来自 client runtime 的 `sessions.list` 快照订阅：
-`running true→false`（当前会话跑完）或 `completed` 新置位（后台会话完成）。
+`running true→false`（当前会话跑完）或 `completed` 新置位（后台会话完成；
+dsh 0.2 起快照行不再带 `completed` 字段，后台完成不再单独触发，前台
+`running` 沿照常）。
 宿主太旧没有 sessions 服务时降级为仅手动交互。
 
-## 设置卡片（dsh rc.7+）
+## 设置卡片
 
-rc.7 起，设置 → 插件 → 插件配置里有「牛来桌宠」卡片，分**通用 / 当前桌宠 / 自定义 / 高级**四个 tab：
+打开「插件」页里 dsh-niulai-pet 的详情页（0.1 宿主在 设置 → 插件 → 插件配置），
+配置区有「牛来桌宠」卡片，分**通用 / 当前桌宠 / 自定义 / 高级**四个 tab：
 声音 / 完成时喊 / 完成连喊（1-3）/ 完成延迟（0-120 秒）/ 循环喊到互动停止 /
 妈妈回应「牛来」/ 语音停喊（喊「牛来」停循环，见下文）/
 气泡 / 隐藏全部 / 物理碰撞 / 桌宠数量上限（默认 10，高级 tab 可放开到只保底 1 不设顶）/
@@ -79,9 +86,10 @@ rc.7 起，设置 → 插件 → 插件配置里有「牛来桌宠」卡片，�
 +小跳回应）：皮肤/大小/语录按只调。循环喊的停止条件：戳它、拎它、新任务
 开跑、静音或关掉开关，60 声兜底自停；互动打断时妈妈会回一句「牛来！」卡片与桌宠右键菜单读写同一份配置，
 改一边另一边即时反映；
-持久化归 dsh host（`~/.dsh/settings.yaml`，跨浏览器共享）。旧版 localStorage
-配置首次加载自动迁入（不覆盖设置页已改过的值）；位置 x 按设备留
-localStorage，不进设置。
+持久化：0.1 宿主归 dsh host（`~/.dsh/settings.yaml`，跨浏览器共享），旧版
+localStorage 配置首次加载自动迁入（不覆盖设置页已改过的值）；0.2 起 host
+设置 API 改版，配置回退 localStorage（`dsh-niulai-pet:state-v1`，按浏览器保存，
+旧的 settings.yaml 值不会自动带过来）。位置 x 始终按设备留 localStorage，不进设置。
 
 ## 自定义角色包
 

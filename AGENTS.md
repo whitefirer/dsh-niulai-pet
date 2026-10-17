@@ -8,12 +8,15 @@
 dsh（DeepSeek Harness）web 的桌宠插件：右下角 fixed 浮层，7 个内置角色 9 个皮肤
 （牛来/原皮/小黄/熊猫/鲸鱼/奶龙/大狗/赛博猫/小奶龙）+ 用户自定义角色包（zip 导入），
 订阅 sessions 服务在 agent 任务完成时庆祝（喊声+气泡+动作）。
-- **client 半**（`lib/client.js`）：桌宠本体 + 设置卡片（dsh rc.7+ 设置页
-  「插件配置」区，React 组件，react 由宿主模块表提供、构建时 external）。
-- **host 半**（`index.js`）：仅注册 settings 命名空间 `niulai-pet`
-  （`installSettingsSection`，schemastery schema）——这是设置卡片的配对键，
-  持久化由 dsh host 白拿（`~/.dsh/settings.yaml`）。rc.6 无 settings 服务时
-  installSettingsSection 内部 inject 永远等不到，静默跳过。
+- **client 半**（`lib/client.js`）：桌宠本体 + 设置卡片（dsh 0.1：设置页
+  「插件配置」区；dsh 0.2+：插件页 dsh-niulai-pet 详情页的配置区。React 组件，
+  react 由宿主模块表提供、构建时 external）。
+- **host 半**（`index.js`）：注册 settings 命名空间 `niulai-pet`（0.1 的
+  `installSettingsSection`，schemastery schema）+ `/niulai-kws` 静态路由。
+  持久化在 0.1 由 dsh host 白拿（`~/.dsh/settings.yaml`）；0.2 起 dsh-settings
+  改成了 SettingsForms，不再导出 installSettingsSection/settingsNamespace，
+  host 半改命名空间导入 + 运行时能力检测（只在 "settings".register 存在时注册），
+  配置回退 localStorage。rc.6 无 settings 服务时注册静默跳过。
 `dsh.bundle` manifest + `cordis.patch.yml` 同时满足官方 CLI 安装识别
 （awesome 收录硬性要求）。**若早期经 pnpm file + market client-only shim
 装过，需用官方 CLI 重装一次**（`dsh plugin --profile web add file:...`）
@@ -223,9 +226,10 @@ signature 占位符再判**（否则皮名下的 split 被吞，火史莱姆戳=
 
 **持久化**（ConfigStore，config.ts）：行为键 muted/shoutOnDone/shoutCount/
 talkative/skin 全局通用；动作绑定按皮肤记（`actions: { [skinId]: {done,poke} }`，
-缺配回落 done=签名/poke=连跳）。dsh rc.7+ 走 settings scope（Host 持久化，
-scope.set 乐观回显 pending 层）；更老版本回退 localStorage
-（`dsh-niulai-pet:state-v1`）。位置 `x` 按设备永远留 localStorage，pet.ts 直读直写。
+缺配回落 done=签名/poke=连跳）。dsh 0.1（rc.7/rc.8）走 settings scope
+（Host 持久化，scope.set 乐观回显 pending 层）；0.2+ 没有 settingsScope，
+回退 localStorage（`dsh-niulai-pet:state-v1`，按浏览器）。位置 `x` 按设备
+永远留 localStorage，pet.ts 直读直写。
 旧文档迁移：全局 doneAction/pokeAction 一次性改写为全皮肤 actions，
 `classic` 皮肤 id 改写为默认皮肤。
 
@@ -302,17 +306,28 @@ assets/ 与 lib/ 均入库。
 
 ## 其它坑
 
-- **设置卡片配对**：host 半 `installSettingsSection(ctx, NS, …)` 注册的命名空间
-  与浏览器半 `settings.plugin.item` 的 `key` 以字符串配对（都是 `niulai-pet`），
-  设置页自动配对渲染；被 serve 却无人认领的命名空间不渲染，反之亦然。
+- **设置卡片配对（两代宿主）**：
+  - 0.1（rc.7/rc.8）：host 半 `installSettingsSection(ctx, NS, …)` 注册命名空间，
+    浏览器半注册 `settings.plugin.item`，key 都是 `niulai-pet`，设置页自动配对；
+    被 serve 却无人认领的命名空间不渲染，反之亦然。
+  - 0.2+：`settings.plugin.item` 没了，host 的 `@deepseek-ai/dsh-settings` 也不再
+    导出 installSettingsSection/settingsNamespace（改 SettingsForms，直接读 entry
+    的 Config）。host 半用命名空间导入 + 能力检测（只在 "settings".register 存在
+    时注册；0.2 的 SettingsForms 也占 "settings" 键但没有 register）；卡片改注册
+    `plugins.bundle.config`，key = bundle 包名 `dsh-niulai-pet`，渲染在插件页的
+    详情页。client 半的 `settingsScope` 也是 0.1 才有，0.2 回退 localStorage；
+    卡片激活门槛因此只留 slots/locale。
   dsh vendored cordis **没有** `{required:false}` 可选注入语法——可选 = 顶层
-  `inject` 保持空，apply 内 `ctx.inject([...], cb)` 子 fiber 等服务
-  （settingsScope/slots/locale/connection/remote 缺一即永不激活，rc.6 静默无卡片）。
+  `inject` 保持空，apply 内 `ctx.inject([...], cb)` 子 fiber 等服务。
   卡片控件即时写（离散控件不套官方 CardForm 的 staged/save）；读侧是
   ConfigStore 的 subscribe，uSES 要求 getSnapshot 稳定引用（不变时同一对象）。
 - 菜单行点击曾被 root 的 `setPointerCapture` 截胡成 poke——root 的 pointerdown
   对 menu/about 区域直接 return。
 - `ctx.effect(fn)` 立即执行；清理函数要 `() => () => cleanup()`。
+- **schemastery 没有 `.optional()`**（0.4.13 踩过）：可选字段写 `.required(false)`；
+  写成 zod 风格的 `.optional()` 会在模块求值时就抛
+  `TypeError: z.boolean(...).optional is not a function`，loader 连 fiber 都建不出来
+  （表现：插件 enabled 但 `fiberPhase: null`、Config 无 schema、界面「启用失败」）。
 - body 直挂节点会被 dsh 首屏 React 清掉：MutationObserver 守灵重挂。
 - 气泡/菜单文字在 `scaleX` 根下会镜像：用 `scaleX(var(--face))` 抵消，
   flight 改朝向时记得同步 `--face`。

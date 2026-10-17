@@ -13,7 +13,12 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// 命名空间导入（而不是具名导入）：dsh 0.2 起 dsh-settings 改成了 SettingsForms，
+// 不再导出 installSettingsSection / settingsNamespace。具名导入在 0.2 宿主上会在
+// 模块链接期直接抛 "does not provide an export named ..."，插件整条挂不上；
+// 命名空间导入拿到什么算什么，下面按函数存在与否降级（0.2 由宿主 SettingsForms
+// 直接读本包导出的 Config 生成表单，不再需要注册）。
+import * as settingsApi from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 
 /**
@@ -64,8 +69,12 @@ async function serveKws(req, res) {
 /**
  * settings 命名空间：与 client 半卡片注册（settings.plugin.item 的 key）配对。
  * 两边写的是同一个字符串，改名必须两边一起改。
+ * dsh 0.2 的 dsh-settings 没有 settingsNamespace 导出，退回普通字符串
+ * （0.2 的表单按 entry id 组织，这里只在 0.1 宿主注册时用到）。
  */
-export const NIULAI_PET_NS = settingsNamespace('niulai-pet')
+export const NIULAI_PET_NS = typeof settingsApi.settingsNamespace === 'function'
+  ? settingsApi.settingsNamespace('niulai-pet')
+  : 'niulai-pet'
 
 /**
  * 动作绑定值：故意**不做枚举**（z.string()）。枚举会把「新动作」判成老宿主
@@ -133,8 +142,10 @@ export const Config = z.object({
     opacity: z.number().step(1).min(20).max(100).default(100),
     /** 本只流光变色（缓慢循环色相，默认关；配置里的色相作基底色）。 */
     hueCycle: z.boolean().default(false),
-    /** 本只走动开关（缺省跟随全局 walkEnabled；皮肤包声明不走动的会在选肤时落 false）。 */
-    walkEnabled: z.boolean().optional(),
+    /** 本只走动开关（缺省跟随全局 walkEnabled；皮肤包声明不走动的会在选肤时落 false）。
+     *  schemastery 没有 zod 的 `.optional()`：可选字段的写法是 `.required(false)`，
+     *  写成 `.optional()` 会在模块求值时抛 TypeError（0.4.13 踩过，插件直接挂不上）。 */
+    walkEnabled: z.boolean().required(false),
     /** 本只专属唠叨语录（空 = 跟随全局 quips 链：全局自定义 → 内置池）。 */
     quips: z.array(z.string()).default([]),
   })).default([]),
@@ -182,12 +193,23 @@ export const Config = z.object({
  * @param {Record<string, unknown>} [config]
  */
 export function apply(ctx, config) {
-  installSettingsSection(ctx, NIULAI_PET_NS, Config, Config(config ?? {}), {
-    // 宿主半没有派生状态要重建（消费全在浏览器半）：hooks 空转即可，
-    // 注册行为本身才是目的（Host serve 该命名空间 → 设置页派发卡片）。
-    setSource: () => {},
-    onChange: () => {},
-  })
+  // 0.1 宿主（rc.7/rc.8）才需要显式注册命名空间；0.2 起宿主 SettingsForms
+  // 直接读本包导出的 Config 生成表单，没有这个函数，跳过即可。
+  //
+  // 只在 "settings" 服务确实是 0.1 的 SettingsProvider（有 register）时才注册：
+  // 0.2 的 SettingsForms 在开启 settings 服务的部署里同样占用这个键，但 API 不同
+  // （describe/update/replace），直接拿它当 SettingsProvider 用会抛错。
+  if (typeof settingsApi.installSettingsSection === 'function') {
+    ctx.inject(['settings'], (sctx) => {
+      if (typeof sctx?.settings?.register !== 'function') return
+      settingsApi.installSettingsSection(ctx, NIULAI_PET_NS, Config, Config(config ?? {}), {
+        // 宿主半没有派生状态要重建（消费全在浏览器半）：hooks 空转即可，
+        // 注册行为本身才是目的（Host serve 该命名空间 → 设置页派发卡片）。
+        setSource: () => {},
+        onChange: () => {},
+      })
+    })
+  }
   // KWS 资产路由（web 形态才有 webServer；TUI 形态下永远不触发）。
   // 拆卸走 sctx.effect（同 dsh-settings 的惯例）：插件重载/卸载时摘掉路由。
   ctx.inject(['webServer'], (sctx) => {

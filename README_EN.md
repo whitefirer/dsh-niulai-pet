@@ -11,11 +11,16 @@ dsh (DeepSeek Harness) web UI. It breathes, blinks, strolls around, naps and gos
 speech bubbles; the moment your agent finishes a task, it jumps up and shouts
 **"Ma~~ma~~"** — with mouth-synced voice, tail note held to the very end.
 
-The pet itself is all browser-side (client half); the host half (`index.js`) only
-registers a settings namespace — on dsh rc.7+ that gives the pet a settings card
-under Settings → Plugins, persisted by the dsh host (`~/.dsh/settings.yaml`).
-On rc.6 and earlier everything still works with localStorage-backed config;
-there is just no card. **Updates apply on page refresh — no host restart**.
+The pet itself is all browser-side (client half); the host half (`index.js`) registers
+the settings namespace and the KWS asset route. Where the settings card lives depends
+on the host version:
+- **dsh 0.2+**: the Plugins page → the dsh-niulai-pet bundle page;
+- **dsh 0.1 (rc.7/rc.8)**: Settings → Plugins → Plugin configuration.
+
+On 0.1 the host persists the config (`~/.dsh/settings.yaml`); from 0.2 the host
+settings API changed, so the plugin falls back to localStorage (per browser).
+On rc.6 and earlier everything still works with localStorage-backed config; there is
+just no card. **Updates apply on page refresh — no host restart**.
 
 **[Try it online (no install)](https://whitefirer.org/niulai-pet/)** — the same
 code as a standalone page, with a simulated task driver for celebrations.
@@ -55,12 +60,14 @@ poke = triple hop).
 
 Completion is detected from the client runtime's `sessions.list` snapshot subscription:
 `running` flipping true→false (foreground session finished) or `completed` newly set
-(background session done). On hosts too old to expose the sessions service the pet
-degrades to manual interaction only.
+(background session done). From dsh 0.2 the snapshot rows no longer carry a `completed`
+field, so only the foreground `running` edge triggers celebration. On hosts too old to
+expose the sessions service the pet degrades to manual interaction only.
 
-## Settings card (dsh rc.7+)
+## Settings card
 
-Since rc.7, Settings → Plugins → Plugin configuration hosts the "Niulai Pet" card:
+Open the dsh-niulai-pet page on the Plugins page (on 0.1 hosts: Settings → Plugins →
+Plugin configuration) to find the "Niulai Pet" card:
 sound / shout-on-done / shout repeats (1–3) / done delay (0–120s) / loop-shout-until-
 touched / mom's "Niulai!" reply / voice stop (shout "Niulai!" to break the loop —
 see below) / chatter bubbles / chatter lines (one per line;
@@ -69,10 +76,11 @@ dropdowns (editing the current skin's bindings). The shout loop stops on poke, d
 a new session start, mute, or flipping the switch off, with a 60-shout safety cap;
 when stopped by interaction, mom answers with a "Niulai!" line. The card and the
 pet's right-click menu read and write the same configuration — change either side and
-the other reflects it immediately. Persistence is owned by the dsh host
-(`~/.dsh/settings.yaml`, shared across browsers). Legacy localStorage preferences are
-migrated on first load (values already changed on the settings page win); the position
-`x` stays per-device in localStorage and is not a setting.
+the other reflects it immediately. On 0.1 the host owns persistence
+(`~/.dsh/settings.yaml`, shared across browsers) and legacy localStorage preferences
+are migrated on first load; from 0.2 the host settings API changed, so config falls
+back to localStorage (per browser, old settings.yaml values are not carried over).
+The position `x` stays per-device in localStorage and is not a setting.
 
 ## Voice stop (two engines)
 

@@ -270,10 +270,11 @@ export function apply(ctx: ClientCtx): void {
       onDone: () => { pet.celebrate(); for (const h of extraPets.values()) h.celebrate(); for (const h of familyPets) h.celebrate() },
       onBusy: (b) => { pet.setBusy(b); for (const h of extraPets.values()) h.setBusy(b); for (const h of familyPets) h.setBusy(b) },
     })
-    // 设置卡片（dsh rc.7+）：可选注入——settingsScope/slots/locale 任一缺席
-    // （rc.6 及更早）子 fiber 就永远等不到服务，静默没有卡片；桌宠与菜单
-    // 不受影响，配置继续走 localStorage 后端。
-    ctx.inject(['slots', 'locale', 'settingsScope', 'connection', 'remote'], (cardCtx: unknown) => {
+    // 设置卡片：只硬依赖 slots/locale（两代宿主都有）。0.1 的 settingsScope /
+    // connection / remote 不再作为激活门槛——0.2 没有这些服务，带上它们卡片
+    // 子 fiber 永远不激活；settingsScope 由 registerSettingsCard 内部按需取，
+    // 缺席时配置回落 localStorage，卡片改挂 plugins.bundle.config。
+    ctx.inject(['slots', 'locale'], (cardCtx: unknown) => {
       registerSettingsCard(cardCtx as Parameters<typeof registerSettingsCard>[0], store, voiceDebug, registry, highlight)
     })
     // 验证钩子：?petdebug=1 时暴露句柄（playwright 触发 celebrate/fly 等）

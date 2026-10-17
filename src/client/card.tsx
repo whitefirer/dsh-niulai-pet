@@ -1,8 +1,14 @@
 /**
- * 设置卡片（dsh rc.7+ 设置页 · 插件配置区）：牛来桌宠的命名空间卡片。
+ * 设置卡片（dsh 设置页 · 插件配置区）：牛来桌宠的命名空间卡片。
  *
- * 与官方卡片同一配对机制：host 半 installSettingsSection 注册命名空间，
- * 本半以同名字符串 key 注册进 `settings.plugin.item` slot，设置页自动配对。
+ * 两代宿主的挂法：
+ *  - 0.1（rc.7/rc.8）：host 半 installSettingsSection 注册命名空间，本半以同名字符串
+ *    key 注册进 `settings.plugin.item` slot，设置页自动配对。
+ *  - 0.2+：`settings.plugin.item` 已不存在；改为注册 `plugins.bundle.config`（按 bundle
+ *    包名配对），卡片显示在「插件」面板里 dsh-niulai-pet 的详情页。0.2 也没有
+ *    settingsScope 服务，配置回落到 localStorage 后端（ConfigStore 自带回退）。
+ * 两个 slot 在对方宿主上都不存在，`slots.inject` 会一直等待，互不干扰。
+ *
  * 控件（switch/步进/下拉）自绘、即时写入（scope.set 自带 revision 乐观围栏，
  * 离散控件不需要官方 CardForm 的 staged/save 模型）；与浮层菜单共读同一份
  * ConfigStore，任一端改动经 subscribe 双向反映。
@@ -408,6 +414,9 @@ const selectStyle = (disabled: boolean): React.CSSProperties => ({
   background: 'transparent', color: colors.labelPrimary, font: 'inherit', fontSize: 13,
   padding: '4px 10px', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1,
   colorScheme: 'dark light',
+  // 设备名/自定义皮肤名可能很长：允许在 flex 行里收缩，否则窄面板(360px)
+  // 里下拉的固有宽度会把左侧中文标签挤成一列竖排字（踩过）。
+  minWidth: 0, maxWidth: '100%', textOverflow: 'ellipsis',
 })
 
 /**
@@ -424,7 +433,9 @@ const optionStyle: React.CSSProperties = {
 function Row(props: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '9px 0' }}>
-      <span style={{ fontSize: 13, color: colors.labelPrimary }}>{props.label}</span>
+      {/* 标签不收缩不换行：右侧控件（长设备名/自定义皮肤名）再宽也只压控件，
+          不会把中文标签挤成竖排单字。 */}
+      <span style={{ fontSize: 13, color: colors.labelPrimary, flex: '0 0 auto', whiteSpace: 'nowrap' }}>{props.label}</span>
       {props.children}
     </div>
   )
@@ -1383,6 +1394,9 @@ export function NiulaiCard(props: NiulaiCardProps) {
                       style={selectStyle(disabled)}
                       value={cfg.micDeviceId}
                       disabled={disabled}
+                      title={cfg.micDeviceId === ''
+                        ? t('micDefault')
+                        : (micDevices.find((d) => d.deviceId === cfg.micDeviceId)?.label ?? cfg.micDeviceId)}
                       onChange={(e) => { props.set({ micDeviceId: e.target.value }) }}
                     >
                       <option value="" style={optionStyle}>{t('micDefault')}</option>
@@ -1596,34 +1610,74 @@ export function NiulaiCard(props: NiulaiCardProps) {
   )
 }
 
+/** 0.1 宿主 settingsScope 子注入面（到了才 bind；0.2 永不触发）。 */
+interface SettingsScopeCtx {
+  settingsScope?: { bind(spec: { namespace: string }): SettingsScopeLike }
+  effect(fn: () => void | (() => void), label?: string): void
+}
+
 /** 卡片半需要的 client ctx 面（cordis 子 fiber 注入后保证在场，结构化自描）。 */
 interface CardCtx {
-  settingsScope: { bind(spec: { namespace: string }): SettingsScopeLike }
   locale: { register(ns: string, dicts: Record<string, Record<string, string>>): () => void }
   slots: {
     inject(key: string, callback: () => (() => void)): () => void
     register(options: Record<string, unknown>, component: unknown): () => void
   }
   effect(fn: () => void | (() => void), label?: string): void
+  /** 可选注入 settingsScope（0.1 宿主有、0.2 没有）。 */
+  inject?(deps: string[], callback: (ctx: SettingsScopeCtx) => void): void
+}
+
+/** 没有 settingsScope 时的展示态 scope：常驻 ready/writable，写入由 ConfigStore 走 localStorage。 */
+const LOCAL_SCOPE: SettingsScopeLike = {
+  getSnapshot: () => ({ status: 'ready', writable: true }),
+  subscribe: () => () => {},
+  set: () => Promise.resolve(),
 }
 
 /**
- * 注册设置卡片：bind 命名空间 scope（ConfigStore 切换后端 + 旧值迁移）、
- * 注册双语字典、按 slot 声明生命周期注册卡片。rc.6 无这些服务时
- * 本函数所在的 ctx.inject 子 fiber 永不激活，什么都不会发生。
+ * 注册设置卡片：注册双语字典、按 slot 声明生命周期注册卡片。
+ * 卡片本身用 LOCAL_SCOPE 展示（始终 ready/writable）；配置后端另走一步——0.1 宿主
+ * 有 settingsScope 就 bind 给 ConfigStore（Host 持久化 + 旧值迁移），0.2 没有就
+ * 留在 localStorage。卡片挂点也分两代：0.1 的 `settings.plugin.item`（设置页按
+ * 命名空间配对），0.2 的 `plugins.bundle.config`（插件页按 bundle 包名配对）。
+ * 两个 slot 各在对方宿主缺席，`slots.inject` 会一直等待，互不冲突。
  */
 export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebug?: VoiceDebugBus, packs?: PacksFace, highlight?: HighlightBus): void {
-  const scope = ctx.settingsScope.bind({ namespace: CARD_NS })
-  ctx.effect(() => store.attachScope(scope), 'niulai-pet settings scope')
   ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), 'niulai-pet card locales')
-  const controller = new CardController(store, scope, voiceDebug, packs, highlight)
+  const controller = new CardController(store, LOCAL_SCOPE, voiceDebug, packs, highlight)
   ctx.effect(() => () => { controller.dispose() }, 'niulai-pet card controller')
+  // 0.1 宿主才有 settingsScope：到了就把 ConfigStore 后端切过去（0.2 永不触发）。
+  ctx.inject?.(['settingsScope'], (sctx) => {
+    const bound = sctx.settingsScope?.bind({ namespace: CARD_NS })
+    if (bound !== undefined) sctx.effect(() => store.attachScope(bound), 'niulai-pet settings scope')
+  })
+  const inject = (): NiulaiCardFace => controller.inject()
+  // 0.1：设置页「插件配置」卡片，按命名空间 key 配对。
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: CARD_NS,
     locale: CARD_NS,
-    inject: () => controller.inject(),
+    inject,
   }, NiulaiCard))
+  // 0.2：插件页 bundle 详情页的配置区，按 bundle 包名配对（cordis.patch.yml 的 name）。
+  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+    name: 'plugins.bundle.config',
+    key: 'dsh-niulai-pet',
+    locale: CARD_NS,
+    inject,
+  }, BundleConfigCard))
+}
+
+/** bundle 配置槽的卡片：详情页本身就是配置页，直接展开（summary 视图保持折叠）。
+ *  卡片根是 `<li>`（设置页那边宿主给的是 <ul>），这里补一层无项目符号的列表容器，
+ *  避免在插件详情页的 <section> 里出现裸 <li>。 */
+function BundleConfigCard(props: NiulaiCardProps & { view?: 'summary' | 'page' }) {
+  return (
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+      <NiulaiCard {...props} defaultOpen={props.view !== 'summary'} />
+    </ul>
+  )
 }
 
 /**
