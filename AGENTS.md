@@ -328,6 +328,11 @@ assets/ 与 lib/ 均入库。
   写成 zod 风格的 `.optional()` 会在模块求值时就抛
   `TypeError: z.boolean(...).optional is not a function`，loader 连 fiber 都建不出来
   （表现：插件 enabled 但 `fiberPhase: null`、Config 无 schema、界面「启用失败」）。
+- **不要把宿主包写进 `dependencies`**（0.4.14 踩过）：`@deepseek-ai/dsh-settings`、
+  `@deepseek-ai/schemastery` 由 dsh 安装提供、loader 会路由到安装副本；写进
+  dependencies 会被 pnpm 提升进 profile，0.2.1 上 dsh 判定旧版 dsh-settings
+  不兼容并**禁用 profile 的 settings 行**（启动日志 "disabling profile plugin row
+  settings"）。0.4.15 已移除，dependencies 只留 `fflate`。
 - body 直挂节点会被 dsh 首屏 React 清掉：MutationObserver 守灵重挂。
 - 气泡/菜单文字在 `scaleX` 根下会镜像：用 `scaleX(var(--face))` 抵消，
   flight 改朝向时记得同步 `--face`。
