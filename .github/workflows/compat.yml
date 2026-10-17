@@ -1,0 +1,155 @@
+name: compat
+
+# dsh 更新时的兼容性巡检：
+# 每天 03:00 UTC（北京时间 11:00）检查一次 npm 上的 @deepseek-ai/dsh@latest；
+# 也可以手动指定版本。失败会在 ubuntu 作业里开/追加一个 issue 通知你。
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'dsh version to test (default: latest)'
+        required: false
+        default: 'latest'
+  push:
+    branches: [master]
+    paths:
+      - 'index.js'
+      - 'package.json'
+      - 'lib/client.js'
+      - 'src/client/**'
+      - 'tools/compat/**'
+      - '.github/workflows/compat.yml'
+
+concurrency:
+  group: compat-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    name: compat (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # dsh plugin add 会转发给 pnpm；GitHub runner 默认没有 pnpm。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install dsh CLI
+        shell: bash
+        run: |
+          npm config set prefix "$HOME/.npm-global"
+          npm install -g "@deepseek-ai/dsh@${{ inputs.dsh_version || 'latest' }}"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.npm-global/bin:$PATH"
+          dsh --version
+
+      - name: Compatibility check
+        shell: bash
+        run: |
+          node tools/compat/check.mjs --report "$RUNNER_TEMP/compat-report-${{ matrix.os }}.md"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-report-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/compat-report-${{ matrix.os }}.md
+            ${{ runner.temp }}/compat-report-${{ matrix.os }}.md.log
+          if-no-files-found: ignore
+
+  notify:
+    name: open issue on failure
+    needs: compat
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '[compat] dsh 兼容检查失败'
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const body = [
+              'dsh 兼容检查失败。',
+              '',
+              `- 运行：${runUrl}`,
+              `- 触发：${context.eventName}`,
+              '',
+              '请下载本次运行 artifacts 里的 `compat-report-*` 查看 entry 状态、诊断和日志；',
+              '修复后重跑 `compat` workflow（成功时会自动关闭这个 issue）。',
+            ].join('\n')
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            const existing = issues.find((issue) => !issue.pull_request && issue.title === title)
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              })
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              })
+            }
+
+  close-issue:
+    name: close issue on success
+    needs: compat
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '[compat] dsh 兼容检查失败'
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            const existing = issues.find((issue) => !issue.pull_request && issue.title === title)
+            if (!existing) return
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body: `兼容检查已恢复（${runUrl}），自动关闭。`,
+            })
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              state: 'closed',
+            })
