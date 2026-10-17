@@ -866,6 +866,8 @@ export function mountPet(assets: PetAssets, store?: ConfigStore, voiceDebug?: Vo
 
   // ---- DOM ----
   const root = document.createElement('div')
+  // 稳定标记：兼容性冒烟（tools/compat/ui.mjs）按它等桌宠挂载，不再靠 z-index 猜。
+  root.dataset.niulaiPet = '1'
   root.style.cssText = [
     'position:fixed', `bottom:${groundOff}px`, 'left:0', `height:${petH}px`,
     'display:flex', 'flex-direction:column', 'justify-content:flex-end',

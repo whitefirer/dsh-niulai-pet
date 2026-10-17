@@ -73,9 +73,76 @@ jobs:
             ${{ runner.temp }}/compat-report-${{ matrix.os }}.md.log
           if-no-files-found: ignore
 
+  ui:
+    name: ui smoke (ubuntu-latest)
+    # 只在定时/手动时跑；push 只跑 host 检查，避免每次提交多 2-3 分钟。
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install dsh CLI
+        shell: bash
+        run: |
+          npm config set prefix "$HOME/.npm-global"
+          npm install -g "@deepseek-ai/dsh@${{ inputs.dsh_version || 'latest' }}"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.npm-global/bin:$PATH"
+          dsh --version
+
+      - name: Install Playwright + Chromium
+        shell: bash
+        env:
+          # playwright 包的 postinstall 不要下三个浏览器，只装 chromium。
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm install --no-save playwright@1.64.1
+          npx playwright install --with-deps chromium
+
+      - name: UI smoke
+        shell: bash
+        run: |
+          export DSH_HOME="$RUNNER_TEMP/dsh-ui-home"
+          dsh --profile compat --from-default-profile web --dump-config >/dev/null
+          dsh plugin --profile compat add "file:$GITHUB_WORKSPACE" >/dev/null
+          dsh --profile compat --no-open --port 0 >"$RUNNER_TEMP/dsh-ui.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          url=""
+          for _ in $(seq 1 60); do
+            url="$(grep -o 'dsh web: http://[^ ]*' "$RUNNER_TEMP/dsh-ui.log" | head -1 | sed 's/^dsh web: //')"
+            [ -n "$url" ] && break
+            sleep 1
+          done
+          if [ -z "$url" ]; then
+            echo 'dsh web did not print its token URL'
+            tail -80 "$RUNNER_TEMP/dsh-ui.log"
+            exit 1
+          fi
+          node tools/compat/ui.mjs --url "$url" --report "$RUNNER_TEMP/ui-report.md"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-report-ubuntu-latest
+          path: |
+            ${{ runner.temp }}/ui-report.md
+            ${{ runner.temp }}/ui-report.md.png
+            ${{ runner.temp }}/dsh-ui.log
+          if-no-files-found: ignore
+
   notify:
     name: open issue on failure
-    needs: compat
+    needs: [compat, ui]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -93,7 +160,7 @@ jobs:
               `- 运行：${runUrl}`,
               `- 触发：${context.eventName}`,
               '',
-              '请下载本次运行 artifacts 里的 `compat-report-*` 查看 entry 状态、诊断和日志；',
+              '请下载本次运行 artifacts 里的 `compat-report-*` / `ui-report-*` 查看 entry 状态、诊断和页面错误；',
               '修复后重跑 `compat` workflow（成功时会自动关闭这个 issue）。',
             ].join('\n')
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -121,7 +188,7 @@ jobs:
 
   close-issue:
     name: close issue on success
-    needs: compat
+    needs: [compat, ui]
     if: success()
     runs-on: ubuntu-latest
     permissions:

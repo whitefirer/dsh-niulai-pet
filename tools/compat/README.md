@@ -73,11 +73,29 @@ Linux 用 cron、macOS 用 launchd，把这条命令写成定时任务即可；�
 - 失败自动开/追加 issue `[compat] dsh 兼容检查失败`，恢复后自动关闭；
 - 报告作为 artifact 上传（`compat-report-<os>`），含 `.md` 和 `.log`。
 
+## UI 冒烟（Playwright）
+
+`tools/compat/ui.mjs` 打开一个已经 boot 的 dsh web 页面（URL 必须带 `dsh web:`
+打印的 `?token=`），断言：
+
+- `[data-niulai-pet]` 桌宠根节点出现（client 半加载并挂载）；
+- `window.__niulaiDiag.petMounted === true`；
+- 卡片 slot 注册成功（0.2 `bundleConfigSlot` / 0.1 `settingsPluginItem`）。
+
+```sh
+node tools/compat/ui.mjs --url "http://127.0.0.1:PORT/?token=..." --report /tmp/ui.md
+```
+
+CI 的 `ui` job（ubuntu、只在 schedule/dispatch 跑）自动做这些；本地要先
+`npm i --no-save playwright && npx playwright install chromium`。报告在
+`--report` 指定的 `.md`，失败截图是同名 `.png`；URL 里的 token 会打码。
+
 ## 局限
 
-- 只覆盖 **host 半 import + Config**。client 半的 slot/服务改名（比如
-  `settings.plugin.item` → `settings.plugins.tab`）需要真实浏览器冒烟，属于下一层
-  Playwright 检查，尚未包含。
+- **host 检查**覆盖 import + Config；**UI 冒烟**覆盖桌宠挂载 + 卡片 slot 注册。
+  两者都不做视觉对比；卡片组件内部渲染错误、非 slot 的 UI 细节不在覆盖范围。
+- 本机计划任务只跑 host 检查（不启动浏览器）；UI 冒烟由 `compat.yml` 的 `ui`
+  job 或手动跑 `ui.mjs`。
 - 本机计划任务检查的是“本机安装的这份 dsh”；npm 上发布的新版本由
   `compat.yml` 覆盖，两者可能滞后/超前。
 - 本机计划任务用的是当前用户，电脑没开机/没登录时不会跑；mac/Linux 本机定时

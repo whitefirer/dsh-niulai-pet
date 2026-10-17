@@ -14,6 +14,7 @@ import { ConfigStore } from './config.js'
 import { registerSettingsCard, mountCardPanel } from './card.js'
 import { VoiceDebugBus } from './voice-debug.js'
 import { HighlightBus } from './highlight.js'
+import { markDiag } from './diag.js'
 import { FAMILY_LEFT, FAMILY_RIGHT, FAMILY_LAYERED_WINGS, layoutLayered, layoutUniform } from './family.js'
 
 export { SKINS } from './skins.js'
@@ -187,6 +188,7 @@ export function apply(ctx: ClientCtx): void {
       },
     })
     const pet = mountPet(mkAssets(), store, voiceDebug)
+    markDiag({ petMounted: true })
     // 全家福（主宠菜单「👪 全家福」）：均匀列队 → 层次合影 → 收起循环。
     // 主宠摆进 C 位、期间钉住不游走、置顶不被叠压；收起时回原位——全程可恢复。
     let famMode: 'off' | 'uniform' | 'layered' = 'off'

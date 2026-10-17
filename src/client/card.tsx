@@ -29,6 +29,7 @@ import { createKwsMatcher, KWS_KEYWORD_PRESETS, kwsKeywordLabel, kwsKeywordsKey 
 import type { ConfigStore, PetConfig, PetConfigPatch, SettingsScopeLike } from './config.js'
 import type { VoiceDebugBus, VoiceDebugState } from './voice-debug.js'
 import type { HighlightBus } from './highlight.js'
+import { markDiag } from './diag.js'
 
 /** 卡片编辑的命名空间（与 host 半 settingsNamespace('niulai-pet') 配对，改名两边同步）。 */
 export const CARD_NS = 'niulai-pet'
@@ -1124,6 +1125,8 @@ export function NiulaiCard(props: NiulaiCardProps) {
   // 配置对象选择（主宠/额外表；皮肤/大小按只）——hook 必须在 ready 早退前
   const [petSel, setPetSel] = useState(props.initialPet ?? 'main')
   const [tab, setTab] = useState<'pet' | 'global' | 'custom' | 'advanced'>('pet')
+  // 卡片至少渲染过一次（兼容性冒烟可选断言；hook 必须在 ready 早退前）。
+  useEffect(() => { markDiag({ cardMounted: true }) }, [])
   // 「当前桌宠」tab 展开期间持续高亮选中桌宠；切 tab/换对象/收起/卸载（关面板）即恢复。
   // 必须在 ready 早退前挂 hook（该早退是既有模式，hook 顺序不能被打乱）。
   const hl = props.highlight
@@ -1654,19 +1657,25 @@ export function registerSettingsCard(ctx: CardCtx, store: ConfigStore, voiceDebu
   })
   const inject = (): NiulaiCardFace => controller.inject()
   // 0.1：设置页「插件配置」卡片，按命名空间 key 配对。
-  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-    name: 'settings.plugin.item',
-    key: CARD_NS,
-    locale: CARD_NS,
-    inject,
-  }, NiulaiCard))
+  ctx.slots.inject('settings.plugin.item', () => {
+    markDiag({ settingsPluginItem: true })
+    return ctx.slots.register({
+      name: 'settings.plugin.item',
+      key: CARD_NS,
+      locale: CARD_NS,
+      inject,
+    }, NiulaiCard)
+  })
   // 0.2：插件页 bundle 详情页的配置区，按 bundle 包名配对（cordis.patch.yml 的 name）。
-  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-    name: 'plugins.bundle.config',
-    key: 'dsh-niulai-pet',
-    locale: CARD_NS,
-    inject,
-  }, BundleConfigCard))
+  ctx.slots.inject('plugins.bundle.config', () => {
+    markDiag({ bundleConfigSlot: true })
+    return ctx.slots.register({
+      name: 'plugins.bundle.config',
+      key: 'dsh-niulai-pet',
+      locale: CARD_NS,
+      inject,
+    }, BundleConfigCard)
+  })
 }
 
 /** bundle 配置槽的卡片：详情页本身就是配置页，直接展开（summary 视图保持折叠）。
