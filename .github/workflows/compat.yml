@@ -191,7 +191,8 @@ jobs:
   close-issue:
     name: close issue on success
     needs: [compat, ui]
-    if: success()
+    # push 时 ui 被跳过，但 host 全绿也应该能关掉旧 issue；UI 失败时不关。
+    if: always() && needs.compat.result == 'success' && (needs.ui.result == 'success' || needs.ui.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
